@@ -3,11 +3,12 @@ from torch.nn import Linear
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch_geometric.nn import GCNConv
-from dataset import get_dataset
+from dataset import get_dataset,node_split
 from sklearn.metrics import precision_recall_fscore_support
 from model import *
 from settings import Settings
 from utils import *
+from sklearn import metrics
 
 class GCNModel(object):
     def __init__(self, ss):
@@ -36,9 +37,11 @@ class GCNModel(object):
         self.max_epochs_lr_decay = 200
         self.scheduler_gamma = 1
 
-        self.subsample_rate = ss.args.subsample_rate
         self.split_graph = ss.args.split_graph
         self.split_n_subgraphs = ss.args.split_n_subgraphs
+
+        self.mia = ss.args.mia
+        self.mia_subsample_rate = ss.args.mia_subsample_rate
 
         self.device = torch.device('cuda' if torch.cuda.is_available()
                                    else 'cpu')
@@ -72,12 +75,35 @@ class GCNModel(object):
         self.random_baseline = True
         self.majority_baseline = True
 
-        self.data = self.get_dataloader(dataset=self.dataset,
+        temp = self.get_dataloader(dataset=self.dataset,
                                         num_test=ss.args.num_test,
                                         num_val=ss.args.num_val,
                                         get_edge_counts=False)
+        self.data = temp[0]
+        self.shadow_data = None
 
         self._init_model()
+
+        if self.mia == 'shadow':
+            self.shadow_train_accs = []
+            self.shadow_train_losses = []
+            self.shadow_train_f1s = []
+            self.shadow_valid_accs = []
+            self.shadow_valid_losses = []
+            self.shadow_valid_f1s = []
+            self.shadow_test_loss = None
+            self.shadow_test_acc = None
+            self.shadow_test_f1 = None
+            self.shadow_random_baseline = True
+            self.shadow_majority_baseline = True
+            self.shadow_model_name = ss.model_name
+            self.shadow_scheduler = None
+            self.shadow_data = temp[1]
+
+            self._init_shadow_model()
+
+        
+        
 
     def get_dataloader(self, dataset='cora', num_val=None, num_test=None,
                        get_edge_counts=False):
@@ -85,34 +111,28 @@ class GCNModel(object):
         Prepares the dataloader for a particular split of the data.
         '''
         if dataset == 'cora':
-            data = get_dataset(cls="Planetoid",name="Cora",num_test=num_test,num_val=num_val)[0]
+            data = get_dataset(cls="Planetoid",name="Cora",num_test=num_test,num_val=num_val)
             # data = Planetoid(self.root_dir, "Cora")[0] 
             # data.train_mask.fill_(True)
             # data.train_mask[data.val_mask | data.test_mask] = False
 
         elif dataset == 'citeseer':
-            data = get_dataset(cls="Planetoid",name="CiteSeer",num_test=num_test,num_val=num_val)[0]
-            # data = Planetoid(self.root_dir, "CiteSeer")[0]
-            # data.train_mask.fill_(True)
-            # data.train_mask[data.val_mask | data.test_mask] = False
+            data = get_dataset(cls="Planetoid",name="CiteSeer",num_test=num_test,num_val=num_val)
 
         elif dataset == 'pubmed':
-            data = get_dataset(cls="Planetoid",name="PubMed",num_test=num_test,num_val=num_val)[0]
-            # data = Planetoid(self.root_dir, "PubMed")[0]
-            # data.train_mask.fill_(True)
-            # data.train_mask[data.val_mask | data.test_mask] = False
+            data = get_dataset(cls="Planetoid",name="PubMed",num_test=num_test,num_val=num_val)
 
         elif dataset == 'computers':
-            data = get_dataset(cls="Amazon",name="Computers",num_test=num_test,num_val=num_val)[0]
+            data = get_dataset(cls="Amazon",name="Computers",num_test=num_test,num_val=num_val)
 
         elif dataset == 'photo':
-            data = get_dataset(cls="Amazon",name="Photo",num_test=num_test,num_val=num_val)[0]
+            data = get_dataset(cls="Amazon",name="Photo",num_test=num_test,num_val=num_val)
 
         elif dataset == 'cs':
-            data = get_dataset(cls="Coauthor",name="CS",num_test=num_test,num_val=num_val)[0]
+            data = get_dataset(cls="Coauthor",name="CS",num_test=num_test,num_val=num_val)
 
         elif dataset == 'physics':
-            data = get_dataset(cls="Coauthor",name="Physics",num_test=num_test,num_val=num_val)[0]
+            data = get_dataset(cls="Coauthor",name="Physics",num_test=num_test,num_val=num_val)
         #     data = Reddit(os.path.join(self.root_dir, 'Reddit'))[0]
         # elif dataset == 'reddit-small':
         #     try:
@@ -136,6 +156,10 @@ class GCNModel(object):
         ###
         # Place code here for mini-batching/graph splitting
         ###
+
+        shadow_data = data.copy()
+        data = data[0]
+        shadow_data = shadow_data[0]
         if self.split_graph:
             batch_masks = random_graph_split(data, n_subgraphs=self.split_n_subgraphs)
             batch_masks = [mask.to(self.device) for mask in batch_masks]
@@ -143,20 +167,31 @@ class GCNModel(object):
             num_sample_nodes = data.x[batch_masks[0]].shape[0]
             print(f"Split graph into {self.split_n_subgraphs} subgraphs of "
                   f"{num_sample_nodes} nodes.")
-
-        # if self.subsample_rate != 1.:
-        #     if self.split_graph:
-        #         raise Exception("Functionality not included for subsampling \
-        #                         graph after splitting it into sub-graphs.")
-        #     print("Subsampling graph...")
-        #     subsample_graph(data, rate=self.subsample_rate,
-        #                     maintain_class_dists=True)
-
+    
         print(f"Total number of nodes: {data.x.shape[0]}")
         print(f"Total number of edges: {data.edge_index.shape[1]}")
         print(f"Number of train nodes: {data.train_mask.sum().item()}")
         print(f"Number of validation nodes: {data.val_mask.sum().item()}")
         print(f"Number of test nodes: {data.test_mask.sum().item()}")
+
+        if self.mia == 'shadow':
+            if self.mia_subsample_rate != 1.:
+                # if self.split_graph:
+                #     raise Exception("Functionality not included for subsampling \
+                #                     graph after splitting it into sub-graphs.")
+                print("Shadow dataset Subsampling graph...")
+                subsample_graph(shadow_data, rate=self.mia_subsample_rate,
+                                maintain_class_dists=True)
+                shadow_data = node_split(shadow_data,num_val=0.1,num_test=0.4)
+                shadow_data = shadow_data.to(self.device)
+                self.shadow_num_nodes = shadow_data.x.shape[0]
+                self.shadow_num_edges = shadow_data.edge_index.shape[1]
+                print(f"Shadow: Total number of nodes: {shadow_data.x.shape[0]}")
+                print(f"Shadow: Total number of edges: {shadow_data.edge_index.shape[1]}")
+                print(f"Shadow: Number of train nodes: {shadow_data.train_mask.sum().item()}")
+                print(f"Shadow: Number of validation nodes: {shadow_data.val_mask.sum().item()}")
+                print(f"Shadow: Number of test nodes: {shadow_data.test_mask.sum().item()}")
+
 
         data = data.to(self.device)
         if get_edge_counts:
@@ -169,7 +204,68 @@ class GCNModel(object):
         self.num_nodes = data.x.shape[0]
         self.num_edges = data.edge_index.shape[1]
 
-        return data
+        return data,shadow_data
+    
+    def _init_shadow_model(self):
+        self.num_classes = len(torch.unique(self.shadow_data.y))
+        print("Using {}".format(self.device))
+        
+        ss_dict = {
+            "k_layer":self.k_layers,
+            "chanels":self.hidden_dim,
+            "dropout":self.dropout,
+            "activation":self.activation,
+            "optimizer":self.optim_type,
+            "num_features":self.shadow_data.num_node_features,
+            "num_classes":self.num_classes
+        }
+        
+        if self.k_layers == 2:
+            model = two_layer_GCN(ss_dict).to(self.device)
+        elif self.k_layers == 3:
+            model = three_layer_GCN(ss_dict).to(self.device)
+        else:
+            model = one_layer_GCN(ss_dict).to(self.device)
+        if self.parallel:
+            pass
+
+        for param in model.parameters():
+            print(param.shape)
+        
+        total_params = 0
+        for param in list(model.parameters()):
+            nn = 1
+            for sp in list(param.size()):
+                nn = nn * sp
+            total_params += nn
+        self.shadow_total_params = total_params
+        print("Total parameters", self.shadow_total_params)
+
+        model_params = filter(lambda param: param.requires_grad,
+                              model.parameters())
+        trainable_params = sum([np.prod(param.size())
+                                for param in model_params])
+        self.shadow_trainable_params = trainable_params
+        print("Trainable parameters", self.shadow_trainable_params)
+
+        if self.optim_type == 'sgd':
+            self.shadow_optimizer = torch.optim.SGD(model.parameters(),
+                                                lr=self.learning_rate,
+                                                weight_decay=self.weight_decay)
+
+        elif self.optim_type == 'adam':
+            self.shadow_optimizer = torch.optim.Adam(model.parameters(),
+                                                lr=self.learning_rate,
+                                                weight_decay=self.weight_decay)
+        else:
+            raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+
+        if self.learning_rate_decay:
+            self.shadow_scheduler = torch.optim.lr_scheduler.StepLR(self.shadow_optimizer, step_size=1,
+                                                             gamma=self.scheduler_gamma)
+        self.shadow_loss = torch.nn.NLLLoss()
+
+        self.shadow_model = model
 
     def _init_model(self):
 
@@ -233,7 +329,7 @@ class GCNModel(object):
             pass
         else:
             if self.optim_type == 'sgd':
-                self.optimizer = torch.optim.SGD(model.parameters(),
+                self.ptimizer = torch.optim.SGD(model.parameters(),
                                                  lr=self.learning_rate,
                                                  weight_decay=self.weight_decay)
 
@@ -252,6 +348,62 @@ class GCNModel(object):
         self.loss = torch.nn.NLLLoss()
 
         self.model = model
+
+    
+    def shadow_train(self):
+        model = self.shadow_model
+        optimizer = self.shadow_optimizer
+        early_stopping = EarlyStopping(self.patience)
+
+        model.train()
+
+        parameters = []
+        q = self.lot_size / self.total_samples
+            # 'Sampling ratio'
+            # Number of subgraphs in a lot divided by total number of subgraphs
+            # If no graph splitting, both values are 1
+        max_range = self.epochs / q  # max number of Ts
+        max_parameters = [(q, self.noise_scale, max_range)]
+
+        print('Shadow Training...')
+        for epoch in range(self.epochs):
+            optimizer.zero_grad()
+            pred_prob_node = model(self.shadow_data)
+            loss = self.shadow_loss(pred_prob_node[self.shadow_data.train_mask],
+                                    self.shadow_data.y[self.shadow_data.train_mask])
+            loss.backward()
+            optimizer.step()
+
+            if self.shadow_scheduler != None and epoch < self.max_epochs_lr_decay:
+                print("Old LR:", self.shadow_optimizer.param_groups[0]['lr'])
+                self.shadow_scheduler.step()
+                print("New LR:", self.shadow_optimizer.param_groups[0]['lr'])
+
+            accuracy, prec, rec, f1 = self.calculate_accuracy(
+                    pred_prob_node[self.shadow_data.train_mask],
+                    self.shadow_data.y[self.shadow_data.train_mask])
+            loss = loss.item()
+
+            self.log(epoch, loss, accuracy, prec, rec, f1,
+                     split='shadow train')
+            self.shadow_train_losses.append(loss)
+            self.shadow_train_accs.append(accuracy)
+            self.shadow_train_f1s.append(f1)
+
+            val_loss = self.evaluate_on_valid(model, epoch,shadow=True)
+
+            self.plot_learning_curve(shadow=True)
+            if self.early_stopping:
+                early_stopping(val_loss)
+                if early_stopping.early_stop:
+                    break
+            print('\n')
+
+        if self.early_stopping:
+            return -early_stopping.best_score
+        else:
+            return val_loss
+
 
     def train(self):
         model = self.model
@@ -423,133 +575,296 @@ class GCNModel(object):
                   "R: {:.4f}\tF1: {:.4f}".format(epoch, split, loss, accuracy,
                                                  prec, rec, f1), flush=True)
 
-    def plot_learning_curve(self):
+    def plot_learning_curve(self,shadow=False):
         '''
         Result png figures are saved in the log directory.
         '''
         fig, (ax1, ax2) = plt.subplots(2, sharex=True)
-        privacy = '      '
-        fig.suptitle('Model Learning Curve ({}, % data {}, epsilon {})'.format(
-            self.dataset, self.subsample_rate, privacy))
+        privacy = 'None'
 
-        epochs = list(range(len(self.train_losses)))
-        ax1.plot(epochs, self.train_losses, 'o-', markersize=2, color='b',
-                 label='Train')
-        ax1.plot(epochs, self.valid_losses, 'o-', markersize=2, color='c',
-                 label='Validation')
-        ax1.set(ylabel='Loss')
+        if shadow:
+            fig.suptitle('Shadow Model Learning Curve ({}, % data {}, epsilon {})'.format(
+            self.dataset, self.mia_subsample_rate, privacy))
+            epochs = list(range(len(self.shadow_train_losses)))
+            ax1.plot(epochs, self.shadow_train_losses, 'o-', markersize=2, color='b',
+                    label='Train')
+            ax1.plot(epochs, self.shadow_valid_losses, 'o-', markersize=2, color='c',
+                    label='Validation')
+            ax1.set(ylabel='Loss')
 
-        ax2.plot(epochs, self.train_accs, 'o-', markersize=2, color='b',
-                 label='Train')
-        ax2.plot(epochs, self.valid_accs, 'o-', markersize=2, color='c',
-                 label='Validation')
-        ax2.set(xlabel='Epoch', ylabel='Accuracy')
-        ax1.legend()
+            ax2.plot(epochs, self.shadow_train_accs, 'o-', markersize=2, color='b',
+                    label='Train')
+            ax2.plot(epochs, self.shadow_valid_accs, 'o-', markersize=2, color='c',
+                    label='Validation')
+            ax2.set(xlabel='Epoch', ylabel='Accuracy')
+            ax1.legend()
+            plt.savefig(os.path.join(self.time_dir, 'shadow_learning_curve.png'))
+            plt.close()
+        else:
+            fig.suptitle('Model Learning Curve ({}, % data {}, epsilon {})'.format(
+                self.dataset, 1, privacy))
+            epochs = list(range(len(self.train_losses)))
+            ax1.plot(epochs, self.train_losses, 'o-', markersize=2, color='b',
+                    label='Train')
+            ax1.plot(epochs, self.valid_losses, 'o-', markersize=2, color='c',
+                    label='Validation')
+            ax1.set(ylabel='Loss')
 
-        plt.savefig(os.path.join(self.time_dir, 'learning_curve.png'))
-        plt.close()
+            ax2.plot(epochs, self.train_accs, 'o-', markersize=2, color='b',
+                    label='Train')
+            ax2.plot(epochs, self.valid_accs, 'o-', markersize=2, color='c',
+                    label='Validation')
+            ax2.set(xlabel='Epoch', ylabel='Accuracy')
+            ax1.legend()
+            plt.savefig(os.path.join(self.time_dir, 'learning_curve.png'))
+            plt.close()
 
-    def evaluate_on_valid(self, model, epoch, early_stopping=None):
+    def evaluate_on_valid(self, model, epoch, shadow=None):
 
         model.eval()
 
         with torch.no_grad():
-            pred_prob_node = model(self.data)
-            loss = self.loss(pred_prob_node[self.data.val_mask],
-                             self.data.y[self.data.val_mask])
+            if shadow:
+                pred_prob_node = model(self.shadow_data)
+                loss = self.shadow_loss(pred_prob_node[self.shadow_data.val_mask],
+                                self.shadow_data.y[self.shadow_data.val_mask])
 
-            accuracy, prec, rec, f1 = self.calculate_accuracy(
-                    pred_prob_node[self.data.val_mask],
-                    self.data.y[self.data.val_mask])
+                accuracy, prec, rec, f1 = self.calculate_accuracy(
+                        pred_prob_node[self.shadow_data.val_mask],
+                        self.shadow_data.y[self.shadow_data.val_mask])
 
-            self.log(epoch, loss, accuracy, prec, rec, f1, split='val')
-            self.valid_losses.append(loss.item())
-            self.valid_accs.append(accuracy)
-            self.valid_f1s.append(f1)
+                self.log(epoch, loss, accuracy, prec, rec, f1, split='shadow val')
+                self.shadow_valid_losses.append(loss.item())
+                self.shadow_valid_accs.append(accuracy)
+                self.shadow_valid_f1s.append(f1)
+            else:
+                pred_prob_node = model(self.data)
+                loss = self.loss(pred_prob_node[self.data.val_mask],
+                                self.data.y[self.data.val_mask])
+                # print(pred_prob_node[self.data.val_mask])
+                # print(self.data.y[self.data.val_mask])
+                # print(pred_prob_node.max(dim=1)[1])
+                accuracy, prec, rec, f1 = self.calculate_accuracy(
+                        pred_prob_node[self.data.val_mask],
+                        self.data.y[self.data.val_mask])
+
+                self.log(epoch, loss, accuracy, prec, rec, f1, split='val')
+                self.valid_losses.append(loss.item())
+                self.valid_accs.append(accuracy)
+                self.valid_f1s.append(f1)
         return loss.item()
 
-    def evaluate_on_test(self):
+    def evaluate_on_test(self,shadow=None):
+        if shadow:
+            model = self.shadow_model
+            model.eval()
+            confusion_matrix = torch.zeros(self.num_classes, self.num_classes,
+                                        dtype=torch.long)
 
-        model = self.model
-        model.eval()
-        confusion_matrix = torch.zeros(self.num_classes, self.num_classes,
-                                       dtype=torch.long)
+            test_size = self.shadow_data.y[self.shadow_data.test_mask].shape
+            with torch.no_grad():
+                pred_prob_node = model(self.shadow_data)
+                loss = self.shadow_loss(pred_prob_node[self.shadow_data.test_mask],
+                                self.shadow_data.y[self.shadow_data.test_mask])
+                preds = pred_prob_node.max(dim=1)[1]
 
-        test_size = self.data.y[self.data.test_mask].shape
-        if self.random_baseline:
-            rand_preds = torch.randint(0, self.data.y.unique().max().item(), (test_size[0],)).to(self.device)
-            accuracy_rand, prec_rand, rec_rand, f1_rand = self.calculate_accuracy(
-                    rand_preds,
-                    self.data.y[self.data.test_mask], rand_maj_baseline=True)
-            print(f"Random baseline results (test F1, test acc): {f1_rand}, {accuracy_rand}")
-        if self.majority_baseline:
-            majority = self.data.y[self.data.train_mask].bincount().argmax().item()
-            majority_preds = torch.ones(test_size, device=self.device) * majority
-            accuracy_maj, prec_maj, rec_maj, f1_maj = self.calculate_accuracy(
-                    majority_preds,
-                    self.data.y[self.data.test_mask], rand_maj_baseline=True)
-            print(f"Majority baseline results (test F1, test acc): {f1_maj}, {accuracy_maj}")
+                accuracy, prec, rec, f1 = self.calculate_accuracy(
+                        pred_prob_node[self.shadow_data.test_mask],
+                        self.shadow_data.y[self.shadow_data.test_mask])
 
-        with torch.no_grad():
-            pred_prob_node = model(self.data)
-            loss = self.loss(pred_prob_node[self.data.test_mask],
-                             self.data.y[self.data.test_mask])
-            preds = pred_prob_node.max(dim=1)[1]
+                for t, p in zip(self.shadow_data.y[self.shadow_data.test_mask],
+                                preds[self.shadow_data.test_mask]):
+                    if p.long() in range(self.num_classes):
+                        confusion_matrix[t.long(), p.long()] += 1
+                    else:
+                        confusion_matrix[t.long(), -1] += 1
 
-            accuracy, prec, rec, f1 = self.calculate_accuracy(
-                    pred_prob_node[self.data.test_mask],
-                    self.data.y[self.data.test_mask])
+                confusion_out = confusion_matrix.data.cpu().numpy()
+                np.savetxt(os.path.join(self.time_dir, 'shadow_confusion_matrix.csv'),
+                        confusion_out, delimiter=',', fmt='% 4d')
 
-            for t, p in zip(self.data.y[self.data.test_mask],
-                            preds[self.data.test_mask]):
-                if p.long() in range(self.num_classes):
-                    confusion_matrix[t.long(), p.long()] += 1
-                else:
-                    confusion_matrix[t.long(), -1] += 1
+                # Output predictions
+                print("Preparing predictions file...\n")
+                pred_filename = os.path.join(self.time_dir,
+                                            f'shadow_preds_seed{self.seed}.csv')
+                with open(pred_filename, 'w') as pred_f:
+                    pred_f.write("Pred,Y\n")
+                    for idx in range(preds[self.shadow_data.test_mask].shape[0]):
+                        pred_f.write(f"{preds[self.shadow_data.test_mask][idx]},{self.shadow_data.y[self.shadow_data.test_mask][idx]}\n")
 
-            confusion_out = confusion_matrix.data.cpu().numpy()
-            np.savetxt(os.path.join(self.time_dir, 'confusion_matrix.csv'),
-                       confusion_out, delimiter=',', fmt='% 4d')
+                self.shadow_test_loss = loss.item()
+                self.shadow_test_acc = accuracy
+                self.shadow_test_f1 = f1
 
-            # Output predictions
-            print("Preparing predictions file...\n")
-            pred_filename = os.path.join(self.time_dir,
-                                         f'preds_seed{self.seed}.csv')
-            with open(pred_filename, 'w') as pred_f:
-                pred_f.write("Pred,Y\n")
-                for idx in range(preds[self.data.test_mask].shape[0]):
-                    pred_f.write(f"{preds[self.data.test_mask][idx]},{self.data.y[self.data.test_mask][idx]}\n")
+                print("Test set results\tLoss: {:.4f}\tNode Accuracy: {:.4f}\t"
+                    "Precision: {:.4f}\tRecall: {:.4f}\tF1: {:.4f}".format(
+                        loss.item(), accuracy, prec, rec, f1))
+            return loss.item(), accuracy, prec, rec, f1
+        else: 
+            model = self.model
+            model.eval()
+            confusion_matrix = torch.zeros(self.num_classes, self.num_classes,
+                                        dtype=torch.long)
 
-            self.test_loss = loss.item()
-            self.test_acc = accuracy
-            self.test_f1 = f1
+            test_size = self.data.y[self.data.test_mask].shape
+            if self.random_baseline:
+                rand_preds = torch.randint(0, self.data.y.unique().max().item(), (test_size[0],)).to(self.device)
+                accuracy_rand, prec_rand, rec_rand, f1_rand = self.calculate_accuracy(
+                        rand_preds,
+                        self.data.y[self.data.test_mask], rand_maj_baseline=True)
+                print(f"Random baseline results (test F1, test acc): {f1_rand}, {accuracy_rand}")
+            if self.majority_baseline:
+                majority = self.data.y[self.data.train_mask].bincount().argmax().item()
+                majority_preds = torch.ones(test_size, device=self.device) * majority
+                accuracy_maj, prec_maj, rec_maj, f1_maj = self.calculate_accuracy(
+                        majority_preds,
+                        self.data.y[self.data.test_mask], rand_maj_baseline=True)
+                print(f"Majority baseline results (test F1, test acc): {f1_maj}, {accuracy_maj}")
 
-            print("Test set results\tLoss: {:.4f}\tNode Accuracy: {:.4f}\t"
-                  "Precision: {:.4f}\tRecall: {:.4f}\tF1: {:.4f}".format(
-                      loss.item(), accuracy, prec, rec, f1))
-        return loss.item(), accuracy, prec, rec, f1
+            with torch.no_grad():
+                pred_prob_node = model(self.data)
+                loss = self.loss(pred_prob_node[self.data.test_mask],
+                                self.data.y[self.data.test_mask])
+                preds = pred_prob_node.max(dim=1)[1]
 
-    def output_results(self, best_score):
+                accuracy, prec, rec, f1 = self.calculate_accuracy(
+                        pred_prob_node[self.data.test_mask],
+                        self.data.y[self.data.test_mask])
+
+                for t, p in zip(self.data.y[self.data.test_mask],
+                                preds[self.data.test_mask]):
+                    if p.long() in range(self.num_classes):
+                        confusion_matrix[t.long(), p.long()] += 1
+                    else:
+                        confusion_matrix[t.long(), -1] += 1
+
+                confusion_out = confusion_matrix.data.cpu().numpy()
+                np.savetxt(os.path.join(self.time_dir, 'confusion_matrix.csv'),
+                        confusion_out, delimiter=',', fmt='% 4d')
+
+                # Output predictions
+                print("Preparing predictions file...\n")
+                pred_filename = os.path.join(self.time_dir,
+                                            f'preds_seed{self.seed}.csv')
+                with open(pred_filename, 'w') as pred_f:
+                    pred_f.write("Pred,Y\n")
+                    for idx in range(preds[self.data.test_mask].shape[0]):
+                        pred_f.write(f"{preds[self.data.test_mask][idx]},{self.data.y[self.data.test_mask][idx]}\n")
+
+                self.test_loss = loss.item()
+                self.test_acc = accuracy
+                self.test_f1 = f1
+
+                print("Test set results\tLoss: {:.4f}\tNode Accuracy: {:.4f}\t"
+                    "Precision: {:.4f}\tRecall: {:.4f}\tF1: {:.4f}".format(
+                        loss.item(), accuracy, prec, rec, f1))
+            return loss.item(), accuracy, prec, rec, f1
+
+    def output_results(self, best_score,shadow=None):
         '''
         Adds final test results to a csv file.
         '''
-        filepath = os.path.join(self.time_dir, 'results.csv')
-        best_val_loss = best_score
-        epoch = self.valid_losses.index(best_val_loss)
-        best_val_acc = self.valid_accs[epoch]
-        best_val_f1 = self.valid_f1s[epoch]
+        if shadow:
+            filepath = os.path.join(self.time_dir, 'shadow_results.csv')
+            best_val_loss = best_score
+            epoch = self.shadow_valid_losses.index(best_val_loss)
+            best_val_acc = self.shadow_valid_accs[epoch]
+            best_val_f1 = self.shadow_valid_f1s[epoch]
 
-        with open(filepath, 'w') as out_f:
-            out_f.write('BestValidLoss,BestValidAcc,BestValidF1,'
-                        'BestValidEpoch,TestLoss,TestAcc,TestF1,'
-                        'NumTrainableParams,NumNodes(per_sg),NumEdges(per_sg),ModelConfig\n')
-            out_f.write(f'{best_val_loss:.4f},{best_val_acc:.4f},'
-                        f'{best_val_f1:.4f},{epoch},{self.test_loss:.4f},'
-                        f'{self.test_acc:.4f},{self.test_f1:.4f},'
-                        f'{self.trainable_params},{self.num_nodes},'
-                        f'{self.num_edges},'
-                        f'{self.model_name}\n')
+            with open(filepath, 'w') as out_f:
+                out_f.write('BestValidLoss,BestValidAcc,BestValidF1,'
+                            'BestValidEpoch,TestLoss,TestAcc,TestF1,'
+                            'NumTrainableParams,NumNodes(per_sg),NumEdges(per_sg),ModelConfig\n')
+                out_f.write(f'{best_val_loss:.4f},{best_val_acc:.4f},'
+                            f'{best_val_f1:.4f},{epoch},{self.shadow_test_loss:.4f},'
+                            f'{self.shadow_test_acc:.4f},{self.shadow_test_f1:.4f},'
+                            f'{self.shadow_trainable_params},{self.shadow_num_nodes},'
+                            f'{self.shadow_num_edges},'
+                            f'{self.shadow_model_name}\n')
+        else:
+            filepath = os.path.join(self.time_dir, 'results.csv')
+            best_val_loss = best_score
+            epoch = self.valid_losses.index(best_val_loss)
+            best_val_acc = self.valid_accs[epoch]
+            best_val_f1 = self.valid_f1s[epoch]
 
+            with open(filepath, 'w') as out_f:
+                out_f.write('BestValidLoss,BestValidAcc,BestValidF1,'
+                            'BestValidEpoch,TestLoss,TestAcc,TestF1,'
+                            'NumTrainableParams,NumNodes(per_sg),NumEdges(per_sg),ModelConfig\n')
+                out_f.write(f'{best_val_loss:.4f},{best_val_acc:.4f},'
+                            f'{best_val_f1:.4f},{epoch},{self.test_loss:.4f},'
+                            f'{self.test_acc:.4f},{self.test_f1:.4f},'
+                            f'{self.trainable_params},{self.num_nodes},'
+                            f'{self.num_edges},'
+                            f'{self.model_name}\n')
+
+    def shadow_MIA(self):
+        model = self.shadow_model
+        model.eval()
+        with torch.no_grad():
+            shadow_train_neg = model(self.shadow_data)[self.shadow_data.test_mask]
+            shadow_train_pos = model(self.shadow_data)[self.shadow_data.train_mask]
+            shadow_train_y = [1]*shadow_train_pos.shape[0]+[0]*shadow_train_neg.shape[0]
+            shadow_train_y = torch.tensor(shadow_train_y,dtype=torch.float).to(self.device)
+            shadow_train_x = torch.cat([shadow_train_neg,shadow_train_pos],dim=0)
+            indices = torch.randperm(shadow_train_x.size(0))
+            shadow_train_x = shadow_train_x[indices]
+            shadow_train_y = shadow_train_y[indices]
+
+        model = self.model
+        model.eval()
+        with torch.no_grad():
+            shadow_test_neg = model(self.data)[self.data.test_mask]
+            shadow_test_pos = model(self.data)[self.data.train_mask]
+            shadow_test_y = [1]*shadow_test_pos.shape[0]+[0]*shadow_test_neg.shape[0]
+            shadow_test_y = torch.tensor(shadow_test_y,dtype=torch.float).to(self.device)
+            shadow_test_x = torch.cat([shadow_test_neg,shadow_test_pos],dim=0)
+            indices = torch.randperm(shadow_test_x.size(0))
+            shadow_test_x = shadow_test_x[indices]
+            shadow_test_y = shadow_test_y[indices]
+
+        ss_dict = {
+            "chanels":self.hidden_dim,
+            "dropout":self.dropout,
+            "optimizer":self.optim_type,
+            "num_features":self.num_classes,
+            "num_classes":1
+        }
+        model = mia_mlpclassifier(ss_dict)
+
+        # 定义损失函数和优化器
+        criterion = torch.nn.BCELoss()  # 二分类问题常用的损失函数是二元交叉熵损失函数
+        optimizer = torch.optim.AdamW(model.parameters())  
+
+        # 训练模型
+        num_epochs = 20  # 训练轮数
+        print("\nTraining MIA classifier:\n")
+        for epoch in range(num_epochs):
+            # 前向传播
+            outputs = model(shadow_train_x)
+            loss = criterion(outputs, shadow_train_y)
+
+            # 反向传播和优化
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # 每训练一轮打印一次损失值
+            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+        print("\nTraining MIA classifier done. Begin MIA attacks:\n")
+        model.eval()
+        with torch.no_grad():
+            shadow_pred = model(shadow_test_x).detach().cpu().numpy().astype(float)
+        shadow_res = (shadow_pred >= .5).astype(int)
+        shadow_test_y = shadow_test_y.detach().cpu().numpy().astype(int)
+
+        print("Metrics for MIA:")
+        print(metrics.classification_report(shadow_test_y, shadow_res, labels=range(2)))
+        print("AUC_ROC Score for MIA:")
+        print(metrics.roc_auc_score(shadow_test_y, shadow_res))
+
+        
 
 def main():
     now = time.time()
@@ -564,13 +879,21 @@ def main():
     torch.backends.cudnn.deterministic = True
 
     model = GCNModel(ss)
-
     best_score = model.train()
     test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test()
     model.output_results(best_score)
     print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
-    with open('adam_hyperparams.csv', 'a') as f:
-        f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
+    # with open('adam_hyperparams.csv', 'a') as f:
+    #     f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
+    
+    if ss.args.mia == 'shadow':
+        best_score = model.shadow_train()
+        test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test(shadow=True)
+        model.output_results(best_score,shadow=True)
+        print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
+        model.shadow_MIA()
+        # with open('adam_hyperparams.csv', 'a') as f:
+        #     f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
     then = time.time()
     runtime = then - now

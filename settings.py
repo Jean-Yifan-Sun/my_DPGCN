@@ -35,8 +35,7 @@ def parse_arguments():
     argparser.add_argument("--parallel", type=str2bool, nargs='?',
                            const=True, default=False)
     argparser.add_argument("--seed", type=int, default=12345)
-    argparser.add_argument("--subsample_rate", type=float, default=1.,
-                           help='If 1. then no subsampling.')
+    
     argparser.add_argument("--split_graph", type=str2bool, nargs='?',
                            const=True, default=False)
     argparser.add_argument("--split_n_subgraphs", type=int, default=10)
@@ -54,6 +53,11 @@ def parse_arguments():
     argparser.add_argument("--dataset", type=str, default='cora',
                            help='cora, citeseer, pubmed, reddit,'
                                 'reddit-small, or pokec-pets')
+    argparser.add_argument("--mia", type=str, default='shadow',
+                           help='shadow or more TBD')
+    argparser.add_argument("--mia_subsample_rate", type=float, default=.3,
+                           help='MIA shadow data, If 1. then no subsampling.')
+
     # argparser.add_argument("--pokec_feat_type", type=str, default='bert_avg',
     #                        help='sbert, bert_avg, ft or bows')
 

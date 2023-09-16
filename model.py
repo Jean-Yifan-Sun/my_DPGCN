@@ -112,4 +112,27 @@ class one_layer_GCN(torch.nn.Module):
         return F.log_softmax(x, dim=1)
     
 
+class mia_mlpclassifier(torch.nn.Module):
+    """
+    mia blackbox shadow classifier in mlp
+    """
+    def __init__(self, ss:dict, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         
+        self.dropout = ss["dropout"]
+        self.num_features = ss["num_features"]
+        self.num_classes = ss["num_classes"]
+        self.hidden_channels = ss["chanels"]
+        self.device = torch.device('cuda' if torch.cuda.is_available()
+                                   else 'cpu')
+        self.activation = F.relu
+
+        self.layer1 = torch.nn.Linear(in_features=self.num_features, out_features=self.hidden_channels,device=self.device)
+        self.layer2 = torch.nn.Linear(in_features=self.hidden_channels,out_features=self.num_classes,device=self.device)
+
+    def forward(self,data):
+        x = self.layer1(data)
+        x = F.dropout(x,p=self.dropout)
+        x = self.activation(x)
+        x = self.layer2(x)
+        return F.sigmoid(x).squeeze(-1)   
