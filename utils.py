@@ -130,8 +130,11 @@ def subsample_graph(data, rate=0.1, maintain_class_dists=True,
             sample_len = int(full_len * rate)
             sample_tensor = torch.randperm(full_len)[:sample_len]
 
-    val_idxs = data.val_mask.nonzero().squeeze()
-    test_idxs = data.test_mask.nonzero().squeeze()
+    val_sample = torch.randperm(data.x[data.val_mask].shape[0])[:int(data.x[data.val_mask].shape[0]*rate)]
+    test_sample = torch.randperm(data.x[data.test_mask].shape[0])[:int(data.x[data.test_mask].shape[0]*rate)]
+    
+    val_idxs = data.val_mask.nonzero().squeeze()[val_sample]
+    test_idxs = data.test_mask.nonzero().squeeze()[test_sample]
     sample_tensor = torch.cat((sample_tensor, val_idxs, test_idxs))
 
     data.x = data.x[sample_tensor]

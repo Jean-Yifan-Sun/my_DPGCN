@@ -1,8 +1,10 @@
 from torch_geometric import datasets,data
-import torch,random
+import torch,random,os
 from torch_geometric import transforms as T
 
-ROOT = '/data01/sunyifan/work_station/my_gcn/data'
+current_path = os.path.dirname(__file__)
+parent_directory = os.path.abspath(os.path.join(current_path, os.pardir))
+ROOT = os.path.join(parent_directory,'data')
 
 dataset_dic_full = {"GNNBenchmark":["PATTERN", "CLUSTER", "MNIST", "CIFAR10", "TSP", "CSL"],
                    "TU":["MUTAG","ENZYMES","PROTEINS","COLLAB","IMDB-BINARY","REDDIT-BINARY"],
@@ -132,7 +134,7 @@ def get_dataset(cls,name=None,num_val=None,num_test=None):
     return temp
 
 def node_split(data,num_val=100,num_test=100):
-    from torch_geometric import transforms as T
+    
     transform = T.RandomNodeSplit(split="train_rest",num_val=num_val,num_test=num_test)
     return transform(data)
 

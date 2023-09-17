@@ -16,8 +16,8 @@ def str2bool(val):
 def parse_arguments():
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--epochs", type=int, default=2000)
-    argparser.add_argument("--num_val", type=int, default=200)
-    argparser.add_argument("--num_test", type=int, default=200)
+    argparser.add_argument("--num_val", type=int, default=.2)
+    argparser.add_argument("--num_test", type=int, default=.3)
     argparser.add_argument("--k_layers", type=int, default=2)
     argparser.add_argument("--hidden_dim", type=int, default=32, nargs="+")
     argparser.add_argument("--learning_rate", type=float, default=0.01)
@@ -55,7 +55,7 @@ def parse_arguments():
                                 'reddit-small, or pokec-pets')
     argparser.add_argument("--mia", type=str, default='shadow',
                            help='shadow or more TBD')
-    argparser.add_argument("--mia_subsample_rate", type=float, default=.3,
+    argparser.add_argument("--mia_subsample_rate", type=float, default=.2,
                            help='MIA shadow data, If 1. then no subsampling.')
 
     # argparser.add_argument("--pokec_feat_type", type=str, default='bert_avg',
@@ -113,8 +113,10 @@ class Settings(object):
         #     self.model_name += f'PokecType_{self.args.pokec_feat_type}'
 
         # Setting up directory structure
-        self.root_dir = 'data'
-        self.out_dir = '/data01/sunyifan/work_station/my_gcn/out'
+        current_directory = os.path.dirname(__file__)
+        parent_directory = os.path.abspath(os.path.join(current_directory, os.pardir))
+        self.root_dir = current_directory
+        self.out_dir = os.path.join(parent_directory,"out/")
         self.data_dir = os.path.join(self.out_dir, f'{self.args.dataset}')
         self.privacy_dir = os.path.join(self.data_dir,
                                         f'Privacy_{self.args.private}')

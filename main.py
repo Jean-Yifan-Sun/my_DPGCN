@@ -182,7 +182,7 @@ class GCNModel(object):
                 print("Shadow dataset Subsampling graph...")
                 subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                                 maintain_class_dists=True)
-                shadow_data = node_split(shadow_data,num_val=0.1,num_test=0.4)
+                shadow_data = node_split(shadow_data,num_val=0.2,num_test=0.3)
                 shadow_data = shadow_data.to(self.device)
                 self.shadow_num_nodes = shadow_data.x.shape[0]
                 self.shadow_num_edges = shadow_data.edge_index.shape[1]
@@ -229,8 +229,8 @@ class GCNModel(object):
         if self.parallel:
             pass
 
-        for param in model.parameters():
-            print(param.shape)
+        # for param in model.parameters():
+        #     print(param.shape)
         
         total_params = 0
         for param in list(model.parameters()):
@@ -295,8 +295,8 @@ class GCNModel(object):
             # model = DataParallel(model)
             pass
 
-        for param in model.parameters():
-            print(param.shape)
+        # for param in model.parameters():
+        #     print(param.shape)
         
         total_params = 0
         for param in list(model.parameters()):
@@ -838,7 +838,7 @@ class GCNModel(object):
         optimizer = torch.optim.AdamW(model.parameters())  
 
         # 训练模型
-        num_epochs = 30  # 训练轮数
+        num_epochs = 100  # 训练轮数
         print("\nTraining MIA classifier:\n")
         for epoch in range(num_epochs):
             # 前向传播
@@ -858,10 +858,18 @@ class GCNModel(object):
             shadow_pred = model(shadow_test_x).detach().cpu().numpy().astype(float)
         shadow_res = (shadow_pred >= .5).astype(int)
         shadow_test_y = shadow_test_y.detach().cpu().numpy().astype(int)
-
+        shadow_target = len(shadow_test_y)
+        shadow_target_in = np.count_nonzero(shadow_test_y)
+        shadow_target_out = shadow_target - shadow_target_in
+        shadow_hit = np.count_nonzero(shadow_test_y == shadow_res)
+        shadow_hit_in = np.count_nonzero((shadow_test_y == 1) & (shadow_res == 1))
+        shadow_hit_out = np.count_nonzero((shadow_test_y == 0) & (shadow_res == 0))
         print("Metrics for MIA:")
         print(metrics.classification_report(shadow_test_y, shadow_res, labels=range(2)))
-        print("AUC_ROC Score for MIA:")
+        print("\nAll targets for MIA:",shadow_target)
+        print(f"\nWith {shadow_target_in} member targets and {shadow_target_out} non-mamber targets.\n")
+        print(f"Members hit:{shadow_hit_in}\nNon members hit:{shadow_hit_out}\nTotal hit:{shadow_hit} with ACC {shadow_hit/shadow_target}")
+        print('\nROC_AUC score is:')
         print(metrics.roc_auc_score(shadow_test_y, shadow_res))
 
         
@@ -883,7 +891,7 @@ def main():
     test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test()
     model.output_results(best_score)
     print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
-    with open('/data01/sunyifan/work_station/my_gcn/code/my_DPGCN/adam_hyperparams.csv', 'a') as f:
+    with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
         f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
     
     if ss.args.mia == 'shadow':
@@ -892,12 +900,12 @@ def main():
         model.output_results(best_score,shadow=True)
         print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         model.shadow_MIA()
-        with open('/data01/sunyifan/work_station/my_gcn/code/my_DPGCN/adam_hyperparams.csv', 'a') as f:
+        with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
     then = time.time()
     runtime = then - now
-    print(f"--- Script completed in {runtime} seconds ---")
+    print(f"\n--- Script completed in {runtime} seconds ---\n")
 
 if __name__ == '__main__':
     main()
