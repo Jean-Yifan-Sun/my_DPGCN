@@ -838,7 +838,7 @@ class GCNModel(object):
         optimizer = torch.optim.AdamW(model.parameters())  
 
         # 训练模型
-        num_epochs = 20  # 训练轮数
+        num_epochs = 30  # 训练轮数
         print("\nTraining MIA classifier:\n")
         for epoch in range(num_epochs):
             # 前向传播
@@ -851,7 +851,7 @@ class GCNModel(object):
             optimizer.step()
 
             # 每训练一轮打印一次损失值
-            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}")
+            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}\n")
         print("\nTraining MIA classifier done. Begin MIA attacks:\n")
         model.eval()
         with torch.no_grad():
@@ -883,8 +883,8 @@ def main():
     test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test()
     model.output_results(best_score)
     print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
-    # with open('adam_hyperparams.csv', 'a') as f:
-    #     f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
+    with open('/data01/sunyifan/work_station/my_gcn/code/my_DPGCN/adam_hyperparams.csv', 'a') as f:
+        f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
     
     if ss.args.mia == 'shadow':
         best_score = model.shadow_train()
@@ -892,8 +892,8 @@ def main():
         model.output_results(best_score,shadow=True)
         print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         model.shadow_MIA()
-        # with open('adam_hyperparams.csv', 'a') as f:
-        #     f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
+        with open('/data01/sunyifan/work_station/my_gcn/code/my_DPGCN/adam_hyperparams.csv', 'a') as f:
+            f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
     then = time.time()
     runtime = then - now
