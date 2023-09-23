@@ -180,7 +180,7 @@ class GCNModel(object):
                 # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                                 # maintain_class_dists=True)
                 subsample_graph_all(shadow_data,rate=self.mia_subsample_rate)
-                shadow_data = node_split(shadow_data,num_val=0.2,num_test=0.3)
+                shadow_data = node_split(shadow_data,num_val=0.2,num_test=0.4)
                 shadow_data = shadow_data.to(self.device)
                 self.shadow_num_nodes = shadow_data.x.shape[0]
                 self.shadow_num_edges = shadow_data.edge_index.shape[1]
@@ -261,7 +261,7 @@ class GCNModel(object):
         if self.learning_rate_decay:
             self.shadow_scheduler = torch.optim.lr_scheduler.StepLR(self.shadow_optimizer, step_size=1,
                                                              gamma=self.scheduler_gamma)
-        self.shadow_loss = torch.nn.NLLLoss()
+        self.shadow_loss = torch.nn.CrossEntropyLoss()
 
         self.shadow_model = model
 
@@ -327,7 +327,7 @@ class GCNModel(object):
             pass
         else:
             if self.optim_type == 'sgd':
-                self.ptimizer = torch.optim.SGD(model.parameters(),
+                self.optimizer = torch.optim.SGD(model.parameters(),
                                                  lr=self.learning_rate,
                                                  weight_decay=self.weight_decay)
 
@@ -342,8 +342,8 @@ class GCNModel(object):
             self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1,
                                                              gamma=self.scheduler_gamma)
 
-        # self.loss = torch.nn.CrossEntropyLoss()
-        self.loss = torch.nn.NLLLoss()
+        self.loss = torch.nn.CrossEntropyLoss()
+        # self.loss = torch.nn.NLLLoss()
 
         self.model = model
 
@@ -639,9 +639,7 @@ class GCNModel(object):
                 pred_prob_node = model(self.data)
                 loss = self.loss(pred_prob_node[self.data.val_mask],
                                 self.data.y[self.data.val_mask])
-                # print(pred_prob_node[self.data.val_mask])
-                # print(self.data.y[self.data.val_mask])
-                # print(pred_prob_node.max(dim=1)[1])
+    
                 accuracy, prec, rec, f1 = self.calculate_accuracy(
                         pred_prob_node[self.data.val_mask],
                         self.data.y[self.data.val_mask])
@@ -805,7 +803,8 @@ class GCNModel(object):
             shadow_train_pos = model(self.shadow_data)[self.shadow_data.train_mask]
             shadow_train_y = [1]*shadow_train_pos.shape[0]+[0]*shadow_train_neg.shape[0]
             shadow_train_y = torch.tensor(shadow_train_y,dtype=torch.float).to(self.device)
-            shadow_train_x = torch.cat([shadow_train_neg,shadow_train_pos],dim=0)
+            shadow_train_x = torch.cat([shadow_train_pos,shadow_train_neg],dim=0)
+            shadow_train_x = torch.softmax(shadow_train_x,dim=1)
             indices = torch.randperm(shadow_train_x.size(0))
             shadow_train_x = shadow_train_x[indices]
             shadow_train_y = shadow_train_y[indices]
@@ -818,7 +817,8 @@ class GCNModel(object):
             shadow_test_pos = model(self.data)[self.data.train_mask]
             shadow_test_y = [1]*shadow_test_pos.shape[0]+[0]*shadow_test_neg.shape[0]
             shadow_test_y = torch.tensor(shadow_test_y,dtype=torch.float).to(self.device)
-            shadow_test_x = torch.cat([shadow_test_neg,shadow_test_pos],dim=0)
+            shadow_test_x = torch.cat([shadow_test_pos,shadow_test_neg],dim=0)
+            shadow_test_x = torch.softmax(shadow_test_x,dim=1)
             indices = torch.randperm(shadow_test_x.size(0))
             shadow_test_x = shadow_test_x[indices]
             shadow_test_y = shadow_test_y[indices]
@@ -842,7 +842,7 @@ class GCNModel(object):
         shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
 
         ss_dict = {
-            "kernel":"linear",#linear rbf poly sigmoid
+            "kernel":"rbf",#linear rbf poly sigmoid
             "random_state":self.seed
         }
         mia_svm = Shadow_MIA_svm(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
@@ -866,8 +866,8 @@ class GCNModel(object):
         for i in range(shadow_test_x.shape[0]):
             item = shadow_test_x[i]
             for j in confidences:
-                temp = math.log(j)
-                if np.count_nonzero(item>temp) > 0 :
+                # temp = math.log(j)
+                if np.count_nonzero(item>j) > 0 :
                     res[j].append(1.)
                 else:
                     res[j].append(0.)

@@ -15,9 +15,9 @@ def str2bool(val):
 
 def parse_arguments():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--epochs", type=int, default=2000)
+    argparser.add_argument("--epochs", type=int, default=600)
     argparser.add_argument("--num_val", type=int, default=.2)
-    argparser.add_argument("--num_test", type=int, default=.3)
+    argparser.add_argument("--num_test", type=int, default=.4)
     argparser.add_argument("--k_layers", type=int, default=2)
     argparser.add_argument("--hidden_dim", type=int, default=32, nargs="+")
     argparser.add_argument("--learning_rate", type=float, default=0.01)
@@ -55,7 +55,7 @@ def parse_arguments():
                                 'reddit-small, or pokec-pets')
     argparser.add_argument("--mia", type=str, default='shadow',
                            help='shadow or more TBD')
-    argparser.add_argument("--mia_subsample_rate", type=float, default=.2,
+    argparser.add_argument("--mia_subsample_rate", type=float, default=.4,
                            help='MIA shadow data, If 1. then no subsampling.')
 
     # argparser.add_argument("--pokec_feat_type", type=str, default='bert_avg',
