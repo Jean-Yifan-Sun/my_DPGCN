@@ -29,7 +29,7 @@ def parse_arguments():
     argparser.add_argument("--activation", type=str, default='relu')
     argparser.add_argument("--early_stopping", type=str2bool, nargs='?',
                            const=True, default=True)
-    argparser.add_argument("--patience", type=int, default=50)
+    argparser.add_argument("--patience", type=int, default=200)
     argparser.add_argument("--optim_type", type=str, default='adam',
                            help='sgd or adam')
     argparser.add_argument("--parallel", type=str2bool, nargs='?',

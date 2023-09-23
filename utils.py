@@ -91,17 +91,20 @@ def subsample_graph(data, rate=0.1, maintain_class_dists=True,
         raise Exception("Rate of subsampling graph must be in interval (0,1).")
 
     if maintain_class_dists:
-        class_counts = torch.bincount(data.y[data.train_mask])
-        new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
-        all_new_class_indexes = []
-        for cls_val in range(class_counts.shape[0]):
-            full_class_indexes = (data.y == cls_val).nonzero().squeeze()
-            train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), data.train_mask.nonzero().squeeze().numpy()))
-            sample_idx_tensor = torch.randperm(
-                    train_class_indexes.shape[0])[:new_class_counts[cls_val]]
-            new_class_indexes = train_class_indexes[sample_idx_tensor]
-            all_new_class_indexes.append(new_class_indexes)
-        sample_tensor = torch.cat(all_new_class_indexes)
+        # class_counts = torch.bincount(data.y[data.train_mask])
+        # new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+        # all_new_class_indexes = []
+        # for cls_val in range(class_counts.shape[0]):
+        #     full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        #     train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), data.train_mask.nonzero().squeeze().numpy()))
+        #     sample_idx_tensor = torch.randperm(
+        #             train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        #     new_class_indexes = train_class_indexes[sample_idx_tensor]
+        #     all_new_class_indexes.append(new_class_indexes)
+        # sample_tensor = torch.cat(all_new_class_indexes)
+        sample_tensor = subsample_mask(data=data,mask=data.train_mask,rate=rate)
+        # val_idxs = subsample_mask(data=data,mask=data.val_mask,rate=rate)
+        # test_idxs = subsample_mask(data=data,mask=data.test_mask,rate=rate)
     else:
         if every_class_present:
             class_counts = torch.bincount(data.y[data.train_mask])
@@ -125,10 +128,19 @@ def subsample_graph(data, rate=0.1, maintain_class_dists=True,
                     (sample_tensor,
                      torch.tensor(idx_from_every_class))
                     ).unique()
+            val_sample = torch.randperm(data.x[data.val_mask].shape[0])[:int(data.x[data.val_mask].shape[0]*rate)]
+            test_sample = torch.randperm(data.x[data.test_mask].shape[0])[:int(data.x[data.test_mask].shape[0]*rate)]
+            val_idxs = data.val_mask.nonzero().squeeze()[val_sample]
+            test_idxs = data.test_mask.nonzero().squeeze()[test_sample]
         else:
             full_len = data.x[data.train_mask].shape[0]
             sample_len = int(full_len * rate)
             sample_tensor = torch.randperm(full_len)[:sample_len]
+            val_sample = torch.randperm(data.x[data.val_mask].shape[0])[:int(data.x[data.val_mask].shape[0]*rate)]
+            test_sample = torch.randperm(data.x[data.test_mask].shape[0])[:int(data.x[data.test_mask].shape[0]*rate)]
+            val_idxs = data.val_mask.nonzero().squeeze()[val_sample]
+            test_idxs = data.test_mask.nonzero().squeeze()[test_sample]
+            
 
     val_sample = torch.randperm(data.x[data.val_mask].shape[0])[:int(data.x[data.val_mask].shape[0]*rate)]
     test_sample = torch.randperm(data.x[data.test_mask].shape[0])[:int(data.x[data.test_mask].shape[0]*rate)]
@@ -163,3 +175,55 @@ def subsample_graph(data, rate=0.1, maintain_class_dists=True,
     data.edge_index = torch.stack((torch.tensor(new_edge_idx_0),
                                    torch.tensor(new_edge_idx_1)))
 
+def subsample_mask(data,mask,rate):
+    class_counts = torch.bincount(data.y[mask])
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), mask.nonzero().squeeze().numpy()))
+        sample_idx_tensor = torch.randperm(
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    return sample_tensor
+
+    
+def subsample_graph_all(data,rate):    
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        sample_idx_tensor = torch.randperm(
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    data.x = data.x[sample_tensor]
+    data.train_mask = data.train_mask[sample_tensor]
+    data.val_mask = data.val_mask[sample_tensor]
+    data.test_mask = data.test_mask[sample_tensor]
+    data.y = data.y[sample_tensor]
+    old_to_new_node_idx = {old_idx.item(): new_idx
+                           for new_idx, old_idx in enumerate(sample_tensor)}
+    
+
+    # Updating adjacency matrix
+    new_edge_index_indexes = []
+    for idx in tqdm(range(data.edge_index.shape[1])):
+        if (data.edge_index[0][idx] in sample_tensor) and \
+           (data.edge_index[1][idx] in sample_tensor):
+            new_edge_index_indexes.append(idx)
+
+    new_edge_idx_temp = torch.index_select(
+            data.edge_index, 1, torch.tensor(new_edge_index_indexes)
+            )
+    new_edge_idx_0 = [old_to_new_node_idx[new_edge_idx_temp[0][a].item()]
+                      for a in range(new_edge_idx_temp.shape[1])]
+    new_edge_idx_1 = [old_to_new_node_idx[new_edge_idx_temp[1][a].item()]
+                      for a in range(new_edge_idx_temp.shape[1])]
+    data.edge_index = torch.stack((torch.tensor(new_edge_idx_0),
+                                   torch.tensor(new_edge_idx_1)))

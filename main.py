@@ -1,4 +1,4 @@
-import torch,sys,os,torch_geometric,time,random
+import torch,sys,os,torch_geometric,time,random,math
 from torch.nn import Linear
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
@@ -176,12 +176,10 @@ class GCNModel(object):
 
         if self.mia == 'shadow':
             if self.mia_subsample_rate != 1.:
-                # if self.split_graph:
-                #     raise Exception("Functionality not included for subsampling \
-                #                     graph after splitting it into sub-graphs.")
                 print("Shadow dataset Subsampling graph...")
-                subsample_graph(shadow_data, rate=self.mia_subsample_rate,
-                                maintain_class_dists=True)
+                # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
+                                # maintain_class_dists=True)
+                subsample_graph_all(shadow_data,rate=self.mia_subsample_rate)
                 shadow_data = node_split(shadow_data,num_val=0.2,num_test=0.3)
                 shadow_data = shadow_data.to(self.device)
                 self.shadow_num_nodes = shadow_data.x.shape[0]
@@ -799,7 +797,7 @@ class GCNModel(object):
                             f'{self.num_edges},'
                             f'{self.model_name}\n')
 
-    def shadow_MIA(self):
+    def get_shadow_data(self):
         model = self.shadow_model
         model.eval()
         with torch.no_grad():
@@ -811,7 +809,8 @@ class GCNModel(object):
             indices = torch.randperm(shadow_train_x.size(0))
             shadow_train_x = shadow_train_x[indices]
             shadow_train_y = shadow_train_y[indices]
-
+            # shadow_train_y2 = (shadow_train_y-.5)*2
+        
         model = self.model
         model.eval()
         with torch.no_grad():
@@ -823,56 +822,59 @@ class GCNModel(object):
             indices = torch.randperm(shadow_test_x.size(0))
             shadow_test_x = shadow_test_x[indices]
             shadow_test_y = shadow_test_y[indices]
+            # shadow_test_y2 = (shadow_test_y-.5)*2
+        return shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y
+
+    def shadow_MIA_mlp(self):
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
 
         ss_dict = {
             "chanels":self.hidden_dim,
             "dropout":self.dropout,
             "optimizer":self.optim_type,
             "num_features":self.num_classes,
-            "num_classes":1
+            "num_classes":1,
+            "num_epochs":100
         }
-        model = mia_mlpclassifier(ss_dict)
-
-        # 定义损失函数和优化器
-        criterion = torch.nn.BCELoss()  # 二分类问题常用的损失函数是二元交叉熵损失函数
-        optimizer = torch.optim.AdamW(model.parameters())  
-
-        # 训练模型
-        num_epochs = 100  # 训练轮数
-        print("\nTraining MIA classifier:\n")
-        for epoch in range(num_epochs):
-            # 前向传播
-            outputs = model(shadow_train_x)
-            loss = criterion(outputs, shadow_train_y)
-
-            # 反向传播和优化
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            # 每训练一轮打印一次损失值
-            print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item():.4f}\n")
-        print("\nTraining MIA classifier done. Begin MIA attacks:\n")
-        model.eval()
-        with torch.no_grad():
-            shadow_pred = model(shadow_test_x).detach().cpu().numpy().astype(float)
-        shadow_res = (shadow_pred >= .5).astype(int)
-        shadow_test_y = shadow_test_y.detach().cpu().numpy().astype(int)
-        shadow_target = len(shadow_test_y)
-        shadow_target_in = np.count_nonzero(shadow_test_y)
-        shadow_target_out = shadow_target - shadow_target_in
-        shadow_hit = np.count_nonzero(shadow_test_y == shadow_res)
-        shadow_hit_in = np.count_nonzero((shadow_test_y == 1) & (shadow_res == 1))
-        shadow_hit_out = np.count_nonzero((shadow_test_y == 0) & (shadow_res == 0))
-        print("Metrics for MIA:")
-        print(metrics.classification_report(shadow_test_y, shadow_res, labels=range(2)))
-        print("\nAll targets for MIA:",shadow_target)
-        print(f"\nWith {shadow_target_in} member targets and {shadow_target_out} non-mamber targets.\n")
-        print(f"Members hit:{shadow_hit_in}\nNon members hit:{shadow_hit_out}\nTotal hit:{shadow_hit} with ACC {shadow_hit/shadow_target}")
-        print('\nROC_AUC score is:')
-        print(metrics.roc_auc_score(shadow_test_y, shadow_res))
-
+        mia_mlp = Shadow_MIA_mlp(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
         
+    def shadow_MIA_svm(self):
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
+
+        ss_dict = {
+            "kernel":"linear",#linear rbf poly sigmoid
+            "random_state":self.seed
+        }
+        mia_svm = Shadow_MIA_svm(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
+
+    def shadow_MIA_ranfor(self):
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
+
+        ss_dict = {
+            "criterion":"gini",#'gini', 'entropy', 'log_loss'
+            "random_state":self.seed,
+            "n_estimators":100
+        }
+        mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
+
+    def confidence_MIA(self):
+        confidences = [0.50,0.55,0.60,0.65,0.70,0.75]
+        res = {0.50:[],0.55:[],0.60:[],0.65:[],0.70:[],0.75:[]}
+        _,_,shadow_test_x,shadow_test_y = self.get_shadow_data()
+        shadow_test_x = shadow_test_x.detach().cpu().numpy()
+        shadow_test_y = shadow_test_y.detach().cpu().numpy().reshape(-1)
+        for i in range(shadow_test_x.shape[0]):
+            item = shadow_test_x[i]
+            for j in confidences:
+                temp = math.log(j)
+                if np.count_nonzero(item>temp) > 0 :
+                    res[j].append(1.)
+                else:
+                    res[j].append(0.)
+        for j in confidences:
+            print(f"\nConfidence MIA attack with threshold {j}:\n")
+            print(metrics.classification_report(shadow_test_y,res[j],labels=range(2)))
+            # print(shadow_test_y,res[j])
 
 def main():
     now = time.time()
@@ -899,7 +901,10 @@ def main():
         test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test(shadow=True)
         model.output_results(best_score,shadow=True)
         print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
-        model.shadow_MIA()
+        model.shadow_MIA_mlp()
+        model.shadow_MIA_svm()
+        model.shadow_MIA_ranfor()
+        model.confidence_MIA()
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
