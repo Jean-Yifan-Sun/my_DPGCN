@@ -3,6 +3,7 @@ from torch.nn import Linear
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from torch_geometric.nn import GCNConv
+from torch_geometric.utils import *
 from dataset import get_dataset,node_split
 from sklearn.metrics import precision_recall_fscore_support
 from model import *
@@ -815,18 +816,23 @@ class GCNModel(object):
         with torch.no_grad():
             shadow_test_neg = model(self.data)[self.data.test_mask]
             shadow_test_pos = model(self.data)[self.data.train_mask]
+            shadow_test_neg_y = self.data.y[self.data.test_mask]
+            shadow_test_pos_y = self.data.y[self.data.train_mask]
             shadow_test_y = [1]*shadow_test_pos.shape[0]+[0]*shadow_test_neg.shape[0]
             shadow_test_y = torch.tensor(shadow_test_y,dtype=torch.float).to(self.device)
+            shadow_test_x_label = torch.cat([shadow_test_pos_y,shadow_test_neg_y],dim=0)
             shadow_test_x = torch.cat([shadow_test_pos,shadow_test_neg],dim=0)
             shadow_test_x = torch.softmax(shadow_test_x,dim=1)
             indices = torch.randperm(shadow_test_x.size(0))
             shadow_test_x = shadow_test_x[indices]
             shadow_test_y = shadow_test_y[indices]
+            shadow_test_x_label = shadow_test_x_label[indices]
+            shadow_test_x_label = one_hot(shadow_test_x_label)
             # shadow_test_y2 = (shadow_test_y-.5)*2
-        return shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y
+        return shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,shadow_test_x_label
 
     def shadow_MIA_mlp(self):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data()
 
         ss_dict = {
             "chanels":self.hidden_dim,
@@ -839,7 +845,7 @@ class GCNModel(object):
         mia_mlp = Shadow_MIA_mlp(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
         
     def shadow_MIA_svm(self):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data()
 
         ss_dict = {
             "kernel":"rbf",#linear rbf poly sigmoid
@@ -848,7 +854,7 @@ class GCNModel(object):
         mia_svm = Shadow_MIA_svm(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
 
     def shadow_MIA_ranfor(self):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y = self.get_shadow_data()
+        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data()
 
         ss_dict = {
             "criterion":"gini",#'gini', 'entropy', 'log_loss'
@@ -858,19 +864,22 @@ class GCNModel(object):
         mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
 
     def confidence_MIA(self):
-        confidences = [0.90,0.91,0.92,0.93,0.94,0.95,0.96,0.97,0.98,0.99]
+        confidences = [0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90]
         res = {}
         for i in confidences:
             res[i] = []
-        _,_,shadow_test_x,shadow_test_y = self.get_shadow_data()
+        _,_,shadow_test_x,shadow_test_y,shadow_test_x_label = self.get_shadow_data()
+        shadow_test_x_label = shadow_test_x_label.detach().cpu().numpy()
         shadow_test_x = shadow_test_x.detach().cpu().numpy()
         shadow_test_y = shadow_test_y.detach().cpu().numpy().reshape(-1)
-        # metrics.mean_squared_error()
+        
         for i in range(shadow_test_x.shape[0]):
             item = shadow_test_x[i]
+            index = np.argmax(shadow_test_x_label[i])
+            label = shadow_test_x_label[i]
             for j in confidences:
-                # temp = math.log(j)
-                if np.count_nonzero(item>j) > 0 :
+                temp = metrics.mean_squared_error(label,item)
+                if (temp<j) :
                     res[j].append(1.)
                 else:
                     res[j].append(0.)
