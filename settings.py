@@ -16,8 +16,8 @@ def str2bool(val):
 def parse_arguments():
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--epochs", type=int, default=600)
-    argparser.add_argument("--num_val", type=int, default=.2)
-    argparser.add_argument("--num_test", type=int, default=.4)
+    argparser.add_argument("--num_val", type=int, default=.1 )
+    argparser.add_argument("--num_test", type=int, default=.45)
     argparser.add_argument("--k_layers", type=int, default=2)
     argparser.add_argument("--hidden_dim", type=int, default=32, nargs="+")
     argparser.add_argument("--learning_rate", type=float, default=0.01)

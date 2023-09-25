@@ -82,7 +82,7 @@ class three_layer_GCN(torch.nn.Module):
         x = self.activation(x)
         x = F.dropout(x, p=self.dropout)
         x = self.conv3(x,edge_index)
-        return F.log_softmax(x, dim=1)
+        return x
 
 
 class one_layer_GCN(torch.nn.Module):
@@ -112,7 +112,7 @@ class one_layer_GCN(torch.nn.Module):
         x = data.x.float()
         edge_index = data.edge_index
         x = self.conv(x,edge_index)
-        return F.log_softmax(x, dim=1)
+        return x
     
 
 class mia_mlpclassifier(torch.nn.Module):

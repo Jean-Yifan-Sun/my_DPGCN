@@ -180,7 +180,7 @@ class GCNModel(object):
                 # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                                 # maintain_class_dists=True)
                 subsample_graph_all(shadow_data,rate=self.mia_subsample_rate)
-                shadow_data = node_split(shadow_data,num_val=0.2,num_test=0.4)
+                shadow_data = node_split(shadow_data,num_val=0.1,num_test=0.45)
                 shadow_data = shadow_data.to(self.device)
                 self.shadow_num_nodes = shadow_data.x.shape[0]
                 self.shadow_num_edges = shadow_data.edge_index.shape[1]
@@ -248,12 +248,12 @@ class GCNModel(object):
 
         if self.optim_type == 'sgd':
             self.shadow_optimizer = torch.optim.SGD(model.parameters(),
-                                                lr=self.learning_rate,
+                                                lr=self.learning_rate/2,
                                                 weight_decay=self.weight_decay)
 
         elif self.optim_type == 'adam':
             self.shadow_optimizer = torch.optim.Adam(model.parameters(),
-                                                lr=self.learning_rate,
+                                                lr=self.learning_rate/2,
                                                 weight_decay=self.weight_decay)
         else:
             raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
@@ -364,7 +364,7 @@ class GCNModel(object):
         max_parameters = [(q, self.noise_scale, max_range)]
 
         print('Shadow Training...')
-        for epoch in range(self.epochs):
+        for epoch in range(int(self.epochs)):
             optimizer.zero_grad()
             pred_prob_node = model(self.shadow_data)
             loss = self.shadow_loss(pred_prob_node[self.shadow_data.train_mask],
@@ -858,11 +858,14 @@ class GCNModel(object):
         mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
 
     def confidence_MIA(self):
-        confidences = [0.50,0.55,0.60,0.65,0.70,0.75]
-        res = {0.50:[],0.55:[],0.60:[],0.65:[],0.70:[],0.75:[]}
+        confidences = [0.90,0.91,0.92,0.93,0.94,0.95,0.96,0.97,0.98,0.99]
+        res = {}
+        for i in confidences:
+            res[i] = []
         _,_,shadow_test_x,shadow_test_y = self.get_shadow_data()
         shadow_test_x = shadow_test_x.detach().cpu().numpy()
         shadow_test_y = shadow_test_y.detach().cpu().numpy().reshape(-1)
+        # metrics.mean_squared_error()
         for i in range(shadow_test_x.shape[0]):
             item = shadow_test_x[i]
             for j in confidences:
@@ -871,10 +874,16 @@ class GCNModel(object):
                     res[j].append(1.)
                 else:
                     res[j].append(0.)
+        best_score = 0            
         for j in confidences:
-            print(f"\nConfidence MIA attack with threshold {j}:\n")
-            print(metrics.classification_report(shadow_test_y,res[j],labels=range(2)))
-            # print(shadow_test_y,res[j])
+            
+            temp = metrics.accuracy_score(shadow_test_y,res[j])
+            if temp>best_score:
+                best_score = temp
+                best_j = j
+        print(f"\nBest Confidence MIA attack with threshold {best_j}:\n")
+        print(metrics.classification_report(shadow_test_y,res[best_j],labels=range(2)))
+        # print(shadow_test_y,res[j])
 
 def main():
     now = time.time()
