@@ -118,8 +118,7 @@ class Settings(object):
         self.root_dir = current_directory
         self.out_dir = os.path.join(parent_directory,"out/")
         self.data_dir = os.path.join(self.out_dir, f'{self.args.dataset}')
-        self.privacy_dir = os.path.join(self.data_dir,
-                                        f'Privacy_{self.args.private}')
+        self.privacy_dir = os.path.join(self.data_dir,f'Privacy_{self.args.private}_{self.args.mia}')
         self.log_dir = os.path.join(self.privacy_dir, f'log_{self.model_name}')
         self.seed_dir = os.path.join(self.log_dir, f'Seed_{self.args.seed}')
         now = time.localtime()

@@ -10,6 +10,7 @@ from model import *
 from settings import Settings
 from utils import *
 from sklearn import metrics
+from tqdm import tqdm
 
 class GCNModel(object):
     def __init__(self, ss):
@@ -180,7 +181,7 @@ class GCNModel(object):
                 print("Shadow dataset Subsampling graph...")
                 # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                                 # maintain_class_dists=True)
-                subsample_graph_all(shadow_data,rate=self.mia_subsample_rate)
+                shadow_data = subsample_graph_pyg(shadow_data,rate=self.mia_subsample_rate)
                 shadow_data = node_split(shadow_data,num_val=0.1,num_test=0.45)
                 shadow_data = shadow_data.to(self.device)
                 self.shadow_num_nodes = shadow_data.x.shape[0]
@@ -840,9 +841,10 @@ class GCNModel(object):
             "optimizer":self.optim_type,
             "num_features":self.num_classes,
             "num_classes":1,
-            "num_epochs":100
+            "max_iter":800,
+            "random_state":self.seed
         }
-        mia_mlp = Shadow_MIA_mlp(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
+        mia_mlp = Shadow_MIA_mlp(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
         
     def shadow_MIA_svm(self):
         shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data()
@@ -864,7 +866,7 @@ class GCNModel(object):
         mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
 
     def confidence_MIA(self):
-        confidences = [0.40,0.45,0.50,0.55,0.60,0.65,0.70,0.75,0.80,0.85,0.90]
+        confidences = [0.01,0.02,0.03,0.04,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50]
         res = {}
         for i in confidences:
             res[i] = []
@@ -900,6 +902,10 @@ def main():
     # Setting the seed
     ss = Settings()
     ss.make_dirs()
+    try:
+        torch.cuda.set_device(3)
+    except:
+        torch.cuda.set_device(0) 
     torch.manual_seed(ss.args.seed)
     torch.cuda.manual_seed(ss.args.seed)
     np.random.seed(ss.args.seed)

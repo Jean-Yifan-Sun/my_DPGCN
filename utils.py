@@ -22,8 +22,9 @@ class EarlyStopping(object):
             self.best_score = score
         elif score < self.best_score:
             self.counter += 1
-            print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
+            
             if self.counter >= self.patience:
+                print(f'EarlyStopping counter: {self.counter} out of {self.patience}')
                 self.early_stop = True
         else:
             self.best_score = score
@@ -227,3 +228,23 @@ def subsample_graph_all(data,rate):
                       for a in range(new_edge_idx_temp.shape[1])]
     data.edge_index = torch.stack((torch.tensor(new_edge_idx_0),
                                    torch.tensor(new_edge_idx_1)))
+    
+def subsample_graph_pyg(data,rate):
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        sample_idx_tensor = torch.randperm(
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    return data.subgraph(sample_tensor) 
+
+def log(self, bar, epoch, loss, accuracy, prec, rec, f1, split='val'):
+
+        if self.verbose:
+            bar.set_description(f'Epoch [{epoch}/{self.epochs} {split}]')
+            bar.set_postfix("Loss: {:.4f},A: {:.4f},P: {:.4f},R: {:.4f},F1: {:.4f}".format(loss, accuracy, prec, rec, f1), flush=True)
