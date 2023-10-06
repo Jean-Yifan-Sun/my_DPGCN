@@ -11,6 +11,7 @@ from settings import Settings
 from utils import *
 from sklearn import metrics
 from tqdm import tqdm
+import pandas as pd
 
 class node_GCN():
     def __init__(self) -> None:
@@ -35,13 +36,30 @@ class node_GCN():
         self.train_vanilla(ss)
         
         if ss.args.mia == 'shadow':
-            self.shadow_model, self.shadow_data = self.train_shadow(ss)
-            
-            self.shadow_MIA_mlp(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-            self.shadow_MIA_svm(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-            self.shadow_MIA_ranfor(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-            self.confidence_MIA(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-        
+            self.shadow_res = {
+                "MIA mlp":[],
+                "MIA svm":[],
+                "MIA ranfor":[],
+                "MIA confidence mse":[],
+                "MIA confidence thr":[],
+                "MIA seed":[]
+            }
+            for i in trange(10,desc='10 Shadow dataset',leave=True):
+                seed = self.seed+i*12345
+                self.shadow_model, self.shadow_data = self.train_shadow(ss,seed)
+                self.shadow_res['MIA seed'].append(seed)
+                self.shadow_MIA_mlp(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+                self.shadow_MIA_svm(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+                self.shadow_MIA_ranfor(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+                self.confidence_MIA(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+        new_res = pd.DataFrame(self.shadow_res)
+        path = os.path.join(ss.privacy_dir,f'MIA_{ss.args.mia_subsample_rate}_result.csv')
+        try: 
+            old_res = pd.read_csv(path)
+            new_res = pd.concat([old_res,new_res])
+        except:
+            new_res.to_csv(path)
+        print(new_res)
         then = time.time()
         runtime = then - now
         print(f"\n--- Script completed in {runtime} seconds ---\n")
@@ -149,7 +167,9 @@ class node_GCN():
             "max_iter":800,
             "random_state":self.seed
         }
-        mia_mlp = Shadow_MIA_mlp(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)    
+        mia_mlp = Shadow_MIA_mlp(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)   
+        mia_mlp_score = mia_mlp.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy()) 
+        self.shadow_res['MIA mlp'].append(f'{mia_mlp_score:.4f}')
 
     def shadow_MIA_svm(self,shadow_model,shadow_data):
         shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data(shadow_model,shadow_data)
@@ -159,6 +179,8 @@ class node_GCN():
             "random_state":self.seed
         }
         mia_svm = Shadow_MIA_svm(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
+        mia_svm_score = mia_svm.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy())
+        self.shadow_res['MIA svm'].append(f'{mia_svm_score:.4f}')
 
     def shadow_MIA_ranfor(self,shadow_model,shadow_data):
         shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data(shadow_model,shadow_data)
@@ -169,6 +191,8 @@ class node_GCN():
             "n_estimators":100
         }
         mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
+        mia_ranfor_score = mia_ranfor.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy())
+        self.shadow_res['MIA ranfor'].append(f'{mia_ranfor_score:.4f}')
 
     def confidence_MIA(self,shadow_model,shadow_data):
         confidences = [0.01,0.02,0.03,0.04,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50]
@@ -199,6 +223,8 @@ class node_GCN():
                 best_j = j
         print(f"\nBest Confidence MIA attack with threshold {best_j}:\n")
         print(metrics.classification_report(shadow_test_y,res[best_j],labels=range(2)))
+        self.shadow_res['MIA confidence mse'].append(f'{best_score:.4f}')
+        self.shadow_res['MIA confidence thr'].append(f'{best_j:.4f}')
 
 if __name__ == '__main__':
     model = node_GCN()

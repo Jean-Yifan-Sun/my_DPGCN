@@ -29,6 +29,7 @@ def output_shadowres(shadow_test_y,shadow_res):
     print(f"Members hit:{shadow_hit_in}\nNon members hit:{shadow_hit_out}\nTotal hit:{shadow_hit} with ACC {shadow_hit/shadow_target}")
     print('\nROC_AUC score is:')
     print(metrics.roc_auc_score(shadow_test_y, shadow_res))
+    return metrics.roc_auc_score(shadow_test_y, shadow_res)
 
 class two_layer_GCN(torch.nn.Module):
     """
@@ -64,7 +65,6 @@ class two_layer_GCN(torch.nn.Module):
         x = F.dropout(x, p=self.dropout)
         x = self.conv2(x,edge_index)
         return x
-
 
 class three_layer_GCN(torch.nn.Module):
     """
@@ -106,7 +106,6 @@ class three_layer_GCN(torch.nn.Module):
         x = self.conv3(x,edge_index)
         return x
 
-
 class one_layer_GCN(torch.nn.Module):
     """
     basic 1 layer GCN module
@@ -136,69 +135,6 @@ class one_layer_GCN(torch.nn.Module):
         x = self.conv(x,edge_index)
         return x
     
-
-# class mia_mlpclassifier(torch.nn.Module):
-#     """
-#     mia blackbox shadow classifier in mlp
-#     """
-#     def __init__(self, ss:dict, *args, **kwargs) -> None:
-#         super().__init__(*args, **kwargs)
-        
-#         self.dropout = ss["dropout"]
-#         self.num_features = ss["num_features"]
-#         self.num_classes = ss["num_classes"]
-#         self.hidden_channels = ss["chanels"]
-#         self.device = torch.device('cuda' if torch.cuda.is_available()
-#                                    else 'cpu')
-#         self.activation = F.relu
-
-#         self.layer1 = torch.nn.Linear(in_features=self.num_features, out_features=self.hidden_channels,device=self.device)
-#         self.layer2 = torch.nn.Linear(in_features=self.hidden_channels,out_features=self.num_classes,device=self.device)
-
-#     def forward(self,data):
-#         x = self.layer1(data)
-#         x = F.dropout(x,p=self.dropout)
-#         x = self.activation(x)
-#         x = self.layer2(x)
-#         return F.sigmoid(x).squeeze(-1)
-
-# class Shadow_MIA_mlp():
-#     """
-#     Running MIA binary mlp classifier
-#     """
-#     def __init__(self,shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y, ss_dict) -> None:
-#         self.model = mia_mlpclassifier(ss_dict)
-#         self.criterion = torch.nn.BCELoss()
-#         self.optimizer = torch.optim.AdamW(self.model.parameters())
-#         self.num_epochs = ss_dict['num_epochs']
-#         self.train(shadow_train_x,shadow_train_y)
-#         self.evaluate(shadow_test_x,shadow_test_y)
-
-#     def train(self,shadow_train_x,shadow_train_y):
-#         print("\nTraining MIA classifier:\n")
-#         for epoch in range(self.num_epochs):
-#             # 前向传播
-#             outputs = self.model(shadow_train_x)
-#             loss = self.criterion(outputs, shadow_train_y)
-
-#             # 反向传播和优化
-#             self.optimizer.zero_grad()
-#             loss.backward()
-#             self.optimizer.step()
-
-#             # 每训练一轮打印一次损失值
-#             print(f"Epoch [{epoch+1}/{self.num_epochs}], Loss: {loss.item():.4f}\n")
-
-#     def evaluate(self,shadow_test_x,shadow_test_y):
-#         print("\nTraining MIA classifier done. Begin MIA attacks:\n")
-#         self.model.eval()
-#         with torch.no_grad():
-#             shadow_pred = self.model(shadow_test_x).detach().cpu().numpy().astype(float)
-#         shadow_res = (shadow_pred >= .5).astype(int)
-#         shadow_test_y = shadow_test_y.detach().cpu().numpy().astype(int)
-#         print("\nMLP MIA attacks:\n")
-#         output_shadowres(shadow_test_y, shadow_res)
-
 class Shadow_MIA_svm():
     """
     mia blackbox shadow classifier in svm
@@ -207,14 +143,15 @@ class Shadow_MIA_svm():
         super(Shadow_MIA_svm, self).__init__()
         self.model = SVC(kernel=ss_dict['kernel'],random_state=ss_dict['random_state'],verbose=True)
         self.train(shadow_train_x,shadow_train_y)
-        self.evaluate(shadow_test_x,shadow_test_y)
+        # self.evaluate(shadow_test_x,shadow_test_y)
 
     def train(self,shadow_train_x,shadow_train_y):
         self.model.fit(shadow_train_x,shadow_train_y)
         
     def evaluate(self,shadow_test_x,shadow_test_y):
         shadow_res = self.model.predict(shadow_test_x)
-        output_shadowres(shadow_test_y,shadow_res)  
+        score = output_shadowres(shadow_test_y,shadow_res)
+        return score
 
 class Shadow_MIA_ranfor():
     """
@@ -228,14 +165,15 @@ class Shadow_MIA_ranfor():
         self.model = RandomForestClassifier(n_estimators=self.n_estimators,random_state=self.random_state,verbose=1)
         
         self.train(shadow_train_x,shadow_train_y)
-        self.evaluate(shadow_test_x,shadow_test_y)
+        # self.evaluate(shadow_test_x,shadow_test_y)
 
     def train(self, shadow_train_x,shadow_train_y):
         self.model.fit(shadow_train_x,shadow_train_y)
 
     def evaluate(self,shadow_test_x,shadow_test_y):
         shadow_res = self.model.predict(shadow_test_x)
-        output_shadowres(shadow_test_y,shadow_res)
+        score = output_shadowres(shadow_test_y,shadow_res)
+        return score
                        
 class Shadow_MIA_mlp():
     """
@@ -245,14 +183,15 @@ class Shadow_MIA_mlp():
         super(Shadow_MIA_mlp, self).__init__()
         self.model = MLPClassifier(random_state=ss_dict['random_state'],verbose=False,solver='adam', max_iter=ss_dict['max_iter'],learning_rate='adaptive')
         self.train(shadow_train_x,shadow_train_y)
-        self.evaluate(shadow_test_x,shadow_test_y)
+        # self.evaluate(shadow_test_x,shadow_test_y)
 
     def train(self,shadow_train_x,shadow_train_y):
         self.model.fit(shadow_train_x,shadow_train_y)
         
     def evaluate(self,shadow_test_x,shadow_test_y):
         shadow_res = self.model.predict(shadow_test_x)
-        output_shadowres(shadow_test_y,shadow_res)
+        score = output_shadowres(shadow_test_y,shadow_res)
+        return score 
 
 class vanilla_GCN_node():
     def __init__(self,ss,data,shadow) -> None:
