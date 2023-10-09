@@ -33,9 +33,10 @@ class node_GCN():
         torch.backends.cudnn.deterministic = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        self.train_vanilla(ss)
+        
         
         if ss.args.mia == 'shadow':
+            self.mia_shadow_mode = ss.args.mia_shadow_mode
             self.shadow_res = {
                 "MIA mlp":[],
                 "MIA svm":[],
@@ -45,15 +46,20 @@ class node_GCN():
                 "MIA seed":[]
             }
             for i in trange(10,desc='10 Shadow dataset',leave=True):
-                seed = self.seed+i*12345
+                seed = self.seed+i*self.seed
+                self.train_vanilla(ss,seed)
+                print(f'Using {self.mia_shadow_mode} as MIA mode')
+                
                 self.shadow_model, self.shadow_data = self.train_shadow(ss,seed)
                 self.shadow_res['MIA seed'].append(seed)
                 self.shadow_MIA_mlp(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
                 self.shadow_MIA_svm(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
                 self.shadow_MIA_ranfor(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
                 self.confidence_MIA(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+        else:
+            self.train_vanilla(ss)
         new_res = pd.DataFrame(self.shadow_res)
-        path = os.path.join(ss.privacy_dir,f'MIA_{ss.args.mia_subsample_rate}_result.csv')
+        path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_result.csv')
         try: 
             old_res = pd.read_csv(path)
             new_res = pd.concat([old_res,new_res])
@@ -64,9 +70,16 @@ class node_GCN():
         runtime = then - now
         print(f"\n--- Script completed in {runtime} seconds ---\n")
 
-    def train_vanilla(self,ss):
+    def train_vanilla(self,ss,seed=None):
+        if seed:
+            random.seed(seed)
+            torch.manual_seed(seed)
+            torch.cuda.manual_seed(seed)
+            np.random.seed(seed)
+            torch.backends.cudnn.enabled = True
+            torch.backends.cudnn.deterministic = True
         dataset = ss.args.dataset
-        self.data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val)
+        self.data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=False,mia_subsample_rate=ss.args.mia_subsample_rate)
         self.vanilla_model = vanilla_GCN_node(ss,
                                               data=self.data,
                                               shadow='vanilla')
@@ -90,7 +103,7 @@ class node_GCN():
             torch.backends.cudnn.deterministic = True
 
         dataset = ss.args.dataset
-        shadow_data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,mia_subsample_rate=ss.args.mia_subsample_rate)
+        shadow_data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=True,mia_subsample_rate=ss.args.mia_subsample_rate)
         model = vanilla_GCN_node(ss,data=shadow_data,shadow='shadow')
         
         best_score = model.train()
@@ -103,7 +116,7 @@ class node_GCN():
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
         return model,shadow_data
     
-    def get_dataloader(self,dataset='cora', num_val=None, num_test=None,get_edge_counts=False,mia_subsample_rate=1):
+    def get_dataloader(self,dataset='cora', num_val=None, num_test=None,shadow_set=False,mia_subsample_rate=1):
         '''
         Prepares the dataloader for a particular split of the data.
         '''
@@ -130,13 +143,13 @@ class node_GCN():
         else:
             raise Exception("Incorrect dataset specified.")
         data = data[0]
-
-        if mia_subsample_rate != 1.:
+        vanila,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
+        if shadow_set:
             print("Shadow dataset Subsampling graph...")
             # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                             # maintain_class_dists=True)
-            data = subsample_graph_pyg(data,rate=mia_subsample_rate)
-            data = node_split(data,num_val=0.1,num_test=0.45)
+            data = shadow
+            data = node_split(data,num_val=num_val,num_test=num_test)
             
             print(f"Shadow: Total number of nodes: {data.x.shape[0]}")
             print(f"Shadow: Total number of edges: {data.edge_index.shape[1]}")
@@ -144,6 +157,8 @@ class node_GCN():
             print(f"Shadow: Number of validation nodes: {data.val_mask.sum().item()}")
             print(f"Shadow: Number of test nodes: {data.test_mask.sum().item()}")
         else:
+            data = vanila
+            data = node_split(data,num_val=num_val,num_test=num_test)
             print(f"Total number of nodes: {data.x.shape[0]}")
             print(f"Total number of edges: {data.edge_index.shape[1]}")
             print(f"Number of train nodes: {data.train_mask.sum().item()}")
@@ -195,7 +210,7 @@ class node_GCN():
         self.shadow_res['MIA ranfor'].append(f'{mia_ranfor_score:.4f}')
 
     def confidence_MIA(self,shadow_model,shadow_data):
-        confidences = [0.01,0.02,0.03,0.04,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.50]
+        confidences = [0.02,0.04,0.06,0.07,0.08,0.091,0.092,0.093,0.094,0.095,0.096,0.097,0.098,0.099,0.1,0.101,0.102,0.103,0.104,0.105,0.106,0.107,0.108,0.2,0.3,0.4,0.5]
         res = {}
         for i in confidences:
             res[i] = []
@@ -209,7 +224,7 @@ class node_GCN():
             index = np.argmax(shadow_test_x_label[i])
             label = shadow_test_x_label[i]
             for j in confidences:
-                temp = metrics.mean_squared_error(label,item)
+                temp = metrics.mean_squared_error(label,item,squared=False)
                 if (temp<j) :
                     res[j].append(1.)
                 else:

@@ -243,8 +243,28 @@ def subsample_graph_pyg(data,rate):
     sample_tensor = torch.cat(all_new_class_indexes)
     return data.subgraph(sample_tensor) 
 
-def log(self, bar, epoch, loss, accuracy, prec, rec, f1, split='val'):
+def subsample_graph_both_pyg(data,rate):
+    """
+    divide two subest of graph from the original graph that matches the dist in original graph and make sure they dont share any common node
+    """
+    assert rate<=.5 
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes1 = []
+    all_new_class_indexes2 = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        rand_idx = torch.randperm(train_class_indexes.shape[0])
 
-        if self.verbose:
-            bar.set_description(f'Epoch [{epoch}/{self.epochs} {split}]')
-            bar.set_postfix("Loss: {:.4f},A: {:.4f},P: {:.4f},R: {:.4f},F1: {:.4f}".format(loss, accuracy, prec, rec, f1), flush=True)
+        sample_idx_tensor1 = rand_idx[:new_class_counts[cls_val]]
+        new_class_indexes1 = train_class_indexes[sample_idx_tensor1]
+        all_new_class_indexes1.append(new_class_indexes1)
+
+        sample_idx_tensor2 = rand_idx[-new_class_counts[cls_val]:]
+        new_class_indexes2 = train_class_indexes[sample_idx_tensor2]
+        all_new_class_indexes2.append(new_class_indexes2)
+
+    sample_tensor1 = torch.cat(all_new_class_indexes1)
+    sample_tensor2 = torch.cat(all_new_class_indexes2)
+    return data.subgraph(sample_tensor1),data.subgraph(sample_tensor2)

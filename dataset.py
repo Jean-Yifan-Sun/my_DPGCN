@@ -134,7 +134,9 @@ def get_dataset(cls,name=None,num_val=None,num_test=None):
     return temp
 
 def node_split(data,num_val=100,num_test=100):
-    
+    """
+    performe a train test valid mask split according the ratio given 
+    """
     transform = T.RandomNodeSplit(split="train_rest",num_val=num_val,num_test=num_test)
     return transform(data)
 

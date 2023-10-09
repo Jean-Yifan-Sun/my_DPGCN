@@ -15,12 +15,12 @@ def str2bool(val):
 
 def parse_arguments():
     argparser = argparse.ArgumentParser()
-    argparser.add_argument("--epochs", type=int, default=600)
+    argparser.add_argument("--epochs", type=int, default=301)
     argparser.add_argument("--num_val", type=int, default=.1 )
     argparser.add_argument("--num_test", type=int, default=.45)
     argparser.add_argument("--k_layers", type=int, default=2)
-    argparser.add_argument("--hidden_dim", type=int, default=32, nargs="+")
-    argparser.add_argument("--learning_rate", type=float, default=0.01)
+    argparser.add_argument("--hidden_dim", type=int, default=256, nargs="+")
+    argparser.add_argument("--learning_rate", type=float, default=0.0001)
     argparser.add_argument("--weight_decay", type=float, default=0.01)
     argparser.add_argument("--momentum", type=float, default=0.9)
     argparser.add_argument("--amsgrad", type=str2bool, nargs='?',
@@ -34,7 +34,7 @@ def parse_arguments():
                            help='sgd or adam')
     argparser.add_argument("--parallel", type=str2bool, nargs='?',
                            const=True, default=False)
-    argparser.add_argument("--seed", type=int, default=12345)
+    argparser.add_argument("--seed", type=int, default=123454321)
     
     argparser.add_argument("--split_graph", type=str2bool, nargs='?',
                            const=True, default=False)
@@ -55,11 +55,11 @@ def parse_arguments():
                                 'reddit-small, or pokec-pets')
     argparser.add_argument("--mia", type=str, default='shadow',
                            help='shadow or more TBD')
-    argparser.add_argument("--mia_subsample_rate", type=float, default=.4,
+    argparser.add_argument("--mia_subsample_rate", type=float, default=.5,
                            help='MIA shadow data, If 1. then no subsampling.')
 
-    # argparser.add_argument("--pokec_feat_type", type=str, default='bert_avg',
-    #                        help='sbert, bert_avg, ft or bows')
+    argparser.add_argument("--mia_shadow_mode", type=str, default='tsts',
+                           help='tsts or tstf')
 
     args = argparser.parse_args()
 

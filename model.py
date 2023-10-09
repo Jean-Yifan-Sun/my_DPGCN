@@ -62,7 +62,7 @@ class two_layer_GCN(torch.nn.Module):
         edge_index = data.edge_index
         x = self.conv1(x,edge_index)
         x = self.activation(x)
-        x = F.dropout(x, p=self.dropout)
+        x = F.dropout(x, p=self.dropout,training=self.training)
         x = self.conv2(x,edge_index)
         return x
 
@@ -99,10 +99,10 @@ class three_layer_GCN(torch.nn.Module):
         edge_index = data.edge_index
         x = self.conv1(x,edge_index)
         x = self.activation(x)
-        x = F.dropout(x, p=self.dropout)
+        x = F.dropout(x, p=self.dropout,training=self.training)
         x = self.conv2(x,edge_index)
         x = self.activation(x)
-        x = F.dropout(x, p=self.dropout)
+        x = F.dropout(x, p=self.dropout,training=self.training)
         x = self.conv3(x,edge_index)
         return x
 
@@ -181,7 +181,7 @@ class Shadow_MIA_mlp():
     """
     def __init__(self, shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y, ss_dict, *args, **kwargs) -> None:
         super(Shadow_MIA_mlp, self).__init__()
-        self.model = MLPClassifier(random_state=ss_dict['random_state'],verbose=False,solver='adam', max_iter=ss_dict['max_iter'],learning_rate='adaptive')
+        self.model = MLPClassifier(hidden_layer_sizes=[256,128],activation='relu',random_state=ss_dict['random_state'],verbose=False,solver='adam', max_iter=ss_dict['max_iter'],learning_rate='adaptive')
         self.train(shadow_train_x,shadow_train_y)
         # self.evaluate(shadow_test_x,shadow_test_y)
 
@@ -198,7 +198,7 @@ class vanilla_GCN_node():
         self.epochs = ss.args.epochs
         self.dataset = ss.args.dataset
         self.hidden_dim = ss.args.hidden_dim
-        self.learning_rate = ss.args.learning_rate/2 if shadow == 'shadow' else ss.args.learning_rate
+        self.learning_rate = ss.args.learning_rate
         self.weight_decay = ss.args.weight_decay
         self.amsgrad = ss.args.amsgrad
         self.verbose = ss.args.verbose
