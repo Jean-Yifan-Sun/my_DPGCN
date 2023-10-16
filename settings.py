@@ -44,7 +44,7 @@ def parse_arguments():
                            const=True, default=False)
     argparser.add_argument("--delta", type=float, default=1e-5)
     argparser.add_argument("--gradient_norm_bound", type=float, default=1.)
-    argparser.add_argument("--noise_scale", type=float, default=4)
+    argparser.add_argument("--noise_scale", type=float, default=10)
     argparser.add_argument("--lot_size", type=int, default=1)
     argparser.add_argument("--sample_size", type=int, default=1)
 
@@ -76,6 +76,7 @@ class Settings(object):
         if not self.args.private:
             self.model_name = f'K{self.args.k_layers}_'\
                               f'E{self.args.epochs}_'\
+                              f'SubSampl{self.args.mia_subsample_rate}_'\
                               f'ACT{self.args.activation}_'\
                               f'Hd{self.args.hidden_dim}_'\
                               f'Lr{self.args.learning_rate}_'\
@@ -92,7 +93,7 @@ class Settings(object):
             self.epsilon = 0
             self.model_name = f'K{self.args.k_layers}_'\
                               f'E{self.args.epochs}_'\
-                              f'SubSampl{self.args.subsample_rate}_'\
+                              f'SubSampl{self.args.mia_subsample_rate}_'\
                               f'Hd{self.args.hidden_dim}_'\
                               f'Lr{self.args.learning_rate}_'\
                               f'Wd{self.args.weight_decay}_'\

@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from tqdm import tqdm
+from sklearn import metrics
 
 '''
 Early stopping for the main network.
@@ -184,87 +185,4 @@ def subsample_mask(data,mask,rate):
         full_class_indexes = (data.y == cls_val).nonzero().squeeze()
         train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), mask.nonzero().squeeze().numpy()))
         sample_idx_tensor = torch.randperm(
-                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
-        new_class_indexes = train_class_indexes[sample_idx_tensor]
-        all_new_class_indexes.append(new_class_indexes)
-    sample_tensor = torch.cat(all_new_class_indexes)
-    return sample_tensor
-
-    
-def subsample_graph_all(data,rate):    
-    class_counts = torch.bincount(data.y)
-    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
-    all_new_class_indexes = []
-    for cls_val in range(class_counts.shape[0]):
-        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
-        train_class_indexes = full_class_indexes
-        sample_idx_tensor = torch.randperm(
-                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
-        new_class_indexes = train_class_indexes[sample_idx_tensor]
-        all_new_class_indexes.append(new_class_indexes)
-    sample_tensor = torch.cat(all_new_class_indexes)
-    data.x = data.x[sample_tensor]
-    data.train_mask = data.train_mask[sample_tensor]
-    data.val_mask = data.val_mask[sample_tensor]
-    data.test_mask = data.test_mask[sample_tensor]
-    data.y = data.y[sample_tensor]
-    old_to_new_node_idx = {old_idx.item(): new_idx
-                           for new_idx, old_idx in enumerate(sample_tensor)}
-    
-
-    # Updating adjacency matrix
-    new_edge_index_indexes = []
-    for idx in tqdm(range(data.edge_index.shape[1])):
-        if (data.edge_index[0][idx] in sample_tensor) and \
-           (data.edge_index[1][idx] in sample_tensor):
-            new_edge_index_indexes.append(idx)
-
-    new_edge_idx_temp = torch.index_select(
-            data.edge_index, 1, torch.tensor(new_edge_index_indexes)
-            )
-    new_edge_idx_0 = [old_to_new_node_idx[new_edge_idx_temp[0][a].item()]
-                      for a in range(new_edge_idx_temp.shape[1])]
-    new_edge_idx_1 = [old_to_new_node_idx[new_edge_idx_temp[1][a].item()]
-                      for a in range(new_edge_idx_temp.shape[1])]
-    data.edge_index = torch.stack((torch.tensor(new_edge_idx_0),
-                                   torch.tensor(new_edge_idx_1)))
-    
-def subsample_graph_pyg(data,rate):
-    class_counts = torch.bincount(data.y)
-    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
-    all_new_class_indexes = []
-    for cls_val in range(class_counts.shape[0]):
-        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
-        train_class_indexes = full_class_indexes
-        sample_idx_tensor = torch.randperm(
-                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
-        new_class_indexes = train_class_indexes[sample_idx_tensor]
-        all_new_class_indexes.append(new_class_indexes)
-    sample_tensor = torch.cat(all_new_class_indexes)
-    return data.subgraph(sample_tensor) 
-
-def subsample_graph_both_pyg(data,rate):
-    """
-    divide two subest of graph from the original graph that matches the dist in original graph and make sure they dont share any common node
-    """
-    assert rate<=.5 
-    class_counts = torch.bincount(data.y)
-    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
-    all_new_class_indexes1 = []
-    all_new_class_indexes2 = []
-    for cls_val in range(class_counts.shape[0]):
-        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
-        train_class_indexes = full_class_indexes
-        rand_idx = torch.randperm(train_class_indexes.shape[0])
-
-        sample_idx_tensor1 = rand_idx[:new_class_counts[cls_val]]
-        new_class_indexes1 = train_class_indexes[sample_idx_tensor1]
-        all_new_class_indexes1.append(new_class_indexes1)
-
-        sample_idx_tensor2 = rand_idx[-new_class_counts[cls_val]:]
-        new_class_indexes2 = train_class_indexes[sample_idx_tensor2]
-        all_new_class_indexes2.append(new_class_indexes2)
-
-    sample_tensor1 = torch.cat(all_new_class_indexes1)
-    sample_tensor2 = torch.cat(all_new_class_indexes2)
-    return data.subgraph(sample_tensor1),data.subgraph(sample_tensor2)
+ 

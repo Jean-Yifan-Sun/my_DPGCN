@@ -41,6 +41,8 @@ class node_GCN():
                 "MIA mlp":[],
                 "MIA svm":[],
                 "MIA ranfor":[],
+                "MIA logi":[],
+                "MIA ada":[],
                 "MIA confidence mse":[],
                 "MIA confidence thr":[],
                 "MIA seed":[]
@@ -52,19 +54,24 @@ class node_GCN():
                 
                 self.shadow_model, self.shadow_data = self.train_shadow(ss,seed)
                 self.shadow_res['MIA seed'].append(seed)
-                self.shadow_MIA_mlp(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-                self.shadow_MIA_svm(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-                self.shadow_MIA_ranfor(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-                self.confidence_MIA(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+                print('\n<<<Begin attack data instruction>>>\n')
+                self.get_shadow_data(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
+                print('<<<Done attack data instruction, begin attack>>>\n')
+                self.shadow_MIA_mlp()
+                self.shadow_MIA_svm()
+                self.shadow_MIA_ranfor()
+                self.shadow_MIA_logi()
+                self.shadow_MIA_ada()
+                self.confidence_MIA()
         else:
             self.train_vanilla(ss)
         new_res = pd.DataFrame(self.shadow_res)
         path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_result.csv')
-        try: 
-            old_res = pd.read_csv(path)
-            new_res = pd.concat([old_res,new_res])
-        except:
-            new_res.to_csv(path)
+        # try: 
+        #     old_res = pd.read_csv(path)
+        #     new_res = pd.concat([old_res,new_res])
+        # except:
+        new_res.to_csv(path)
         print(new_res)
         then = time.time()
         runtime = then - now
@@ -142,14 +149,16 @@ class node_GCN():
             data = get_dataset(cls="Coauthor",name="Physics",num_test=num_test,num_val=num_val)
         else:
             raise Exception("Incorrect dataset specified.")
-        data = data[0]
-        vanila,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
+        data = node_split(data[0],num_val=num_val,num_test=num_test)
+        # vanilla,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
+        vanilla,shadow = subsample_mask_graph_full(data,mia_subsample_rate)
+        print(f"\nGet dataset {dataset}\n")
         if shadow_set:
             print("Shadow dataset Subsampling graph...")
             # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                             # maintain_class_dists=True)
             data = shadow
-            data = node_split(data,num_val=num_val,num_test=num_test)
+            # data = node_split(data,num_val=num_val,num_test=num_test)
             
             print(f"Shadow: Total number of nodes: {data.x.shape[0]}")
             print(f"Shadow: Total number of edges: {data.edge_index.shape[1]}")
@@ -157,8 +166,8 @@ class node_GCN():
             print(f"Shadow: Number of validation nodes: {data.val_mask.sum().item()}")
             print(f"Shadow: Number of test nodes: {data.test_mask.sum().item()}")
         else:
-            data = vanila
-            data = node_split(data,num_val=num_val,num_test=num_test)
+            data = vanilla
+            # data = node_split(data,num_val=num_val,num_test=num_test)
             print(f"Total number of nodes: {data.x.shape[0]}")
             print(f"Total number of edges: {data.edge_index.shape[1]}")
             print(f"Number of train nodes: {data.train_mask.sum().item()}")
@@ -169,74 +178,97 @@ class node_GCN():
     def get_shadow_data(self,shadow_model:vanilla_GCN_node,shadow_data):
         model = shadow_model
         shadow_train_x,shadow_train_y, = model.get_shadow_data(shadow_data)
-        
         model = self.vanilla_model
         shadow_test_x,shadow_test_y,shadow_test_x_label = model.get_vanilla_data(self.data)
-            
-        return shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,shadow_test_x_label
+        self.shadow_mia_data_list = [shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),shadow_test_x_label.detach().cpu().numpy()]     
 
-    def shadow_MIA_mlp(self,shadow_model,shadow_data):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data(shadow_model,shadow_data)
+    def shadow_MIA_mlp(self):
+        
+        [shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ ] = self.shadow_mia_data_list
 
         ss_dict = {
             "max_iter":800,
             "random_state":self.seed
         }
-        mia_mlp = Shadow_MIA_mlp(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)   
-        mia_mlp_score = mia_mlp.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy()) 
+        mia_mlp = Shadow_MIA_mlp(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)   
+        mia_mlp_score = mia_mlp.evaluate(shadow_test_x,shadow_test_y) 
         self.shadow_res['MIA mlp'].append(f'{mia_mlp_score:.4f}')
 
-    def shadow_MIA_svm(self,shadow_model,shadow_data):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data(shadow_model,shadow_data)
+    def shadow_MIA_svm(self):
+        [shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_] = self.shadow_mia_data_list
 
         ss_dict = {
             "kernel":"rbf",#linear rbf poly sigmoid
             "random_state":self.seed
         }
-        mia_svm = Shadow_MIA_svm(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
-        mia_svm_score = mia_svm.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy())
+        mia_svm = Shadow_MIA_svm(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
+        mia_svm_score = mia_svm.evaluate(shadow_test_x,shadow_test_y)
         self.shadow_res['MIA svm'].append(f'{mia_svm_score:.4f}')
 
-    def shadow_MIA_ranfor(self,shadow_model,shadow_data):
-        shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_ = self.get_shadow_data(shadow_model,shadow_data)
+    def shadow_MIA_ranfor(self):
+        [shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_] = self.shadow_mia_data_list
 
         ss_dict = {
             "criterion":"gini",#'gini', 'entropy', 'log_loss'
             "random_state":self.seed,
-            "n_estimators":100
+            "n_estimators":400
         }
-        mia_ranfor = Shadow_MIA_ranfor(shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),ss_dict)
-        mia_ranfor_score = mia_ranfor.evaluate(shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy())
+        mia_ranfor = Shadow_MIA_ranfor(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
+        mia_ranfor_score = mia_ranfor.evaluate(shadow_test_x,shadow_test_y)
         self.shadow_res['MIA ranfor'].append(f'{mia_ranfor_score:.4f}')
 
-    def confidence_MIA(self,shadow_model,shadow_data):
-        confidences = [0.02,0.04,0.06,0.07,0.08,0.091,0.092,0.093,0.094,0.095,0.096,0.097,0.098,0.099,0.1,0.101,0.102,0.103,0.104,0.105,0.106,0.107,0.108,0.2,0.3,0.4,0.5]
+    def shadow_MIA_logi(self):
+        [shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_] = self.shadow_mia_data_list
+
+        ss_dict = {
+            "penalty":"elasticnet",#'elasticnet', 'l1', 'l2'
+            "random_state":self.seed,
+            "max_iter":100,
+            'solver':'saga',#‘lbfgs’, ‘liblinear’, ‘newton-cg’, ‘newton-cholesky’, ‘sag’, ‘saga’
+            'l1_ratio':0.05
+        }
+        mia_logi = Shadow_MIA_logi(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
+        mia_logi_score = mia_logi.evaluate(shadow_test_x,shadow_test_y)
+        self.shadow_res['MIA logi'].append(f'{mia_logi_score:.4f}')
+
+    def shadow_MIA_ada(self):
+        [shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,_] = self.shadow_mia_data_list
+
+        ss_dict = {
+            "algorithm":"SAMME.R",#'SAMME', 'SAMME.R'
+            "random_state":self.seed,
+            "n_estimators":50
+        }
+        mia_ada = Shadow_MIA_ada(shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y,ss_dict)
+        mia_ada_score = mia_ada.evaluate(shadow_test_x,shadow_test_y)
+        self.shadow_res['MIA ada'].append(f'{mia_ada_score:.4f}')
+
+    def confidence_MIA(self):
+        # confidences = trange(start=0.001,stop=1,step=0.001,desc='Loss confidence range',leave=True)
         res = {}
-        for i in confidences:
-            res[i] = []
-        _,_,shadow_test_x,shadow_test_y,shadow_test_x_label = self.get_shadow_data(shadow_model,shadow_data)
-        shadow_test_x_label = shadow_test_x_label.detach().cpu().numpy()
-        shadow_test_x = shadow_test_x.detach().cpu().numpy()
-        shadow_test_y = shadow_test_y.detach().cpu().numpy().reshape(-1)
-        
+        j = 0
+        best_score = 0 
+        confidences = []
+        for i in range(100):
+            j+=0.01
+            res[j] = []
+            confidences.append(j)
+        [_,_,shadow_test_x,shadow_test_y,shadow_test_x_label] = self.shadow_mia_data_list
+        shadow_test_y = shadow_test_y.reshape(-1)
+
         for i in range(shadow_test_x.shape[0]):
             item = shadow_test_x[i]
-            index = np.argmax(shadow_test_x_label[i])
             label = shadow_test_x_label[i]
+            loss = metrics.mean_squared_error(label,item,squared=False)
             for j in confidences:
-                temp = metrics.mean_squared_error(label,item,squared=False)
-                if (temp<j) :
-                    res[j].append(1.)
-                else:
-                    res[j].append(0.)
-        best_score = 0            
+                res[j].append(1. if (loss<j) else 0.)
+                        
         for j in confidences:
-            
             temp = metrics.accuracy_score(shadow_test_y,res[j])
             if temp>best_score:
                 best_score = temp
                 best_j = j
-        print(f"\nBest Confidence MIA attack with threshold {best_j}:\n")
+        print(f"\nBest Confidence MIA attack with threshold {best_j:.4f}:\n")
         print(metrics.classification_report(shadow_test_y,res[best_j],labels=range(2)))
         self.shadow_res['MIA confidence mse'].append(f'{best_score:.4f}')
         self.shadow_res['MIA confidence thr'].append(f'{best_j:.4f}')

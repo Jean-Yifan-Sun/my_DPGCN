@@ -1,8 +1,8 @@
 import torch,torch_geometric,os,sys,random
 import pandas as pd
 import numpy as np
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier,AdaBoostClassifier
 from sklearn.neural_network import MLPClassifier
 from sklearn import metrics
 from sklearn.svm import SVC
@@ -10,26 +10,11 @@ from sklearn import metrics
 from torch_geometric.nn import GCNConv
 import torch.nn.functional as F
 from utils import *
+from accountant import *
+from privacy import *
 from matplotlib import pyplot as plt
 from torch_geometric.utils import one_hot
 from tqdm import tqdm,trange 
-
-
-def output_shadowres(shadow_test_y,shadow_res):
-    shadow_target = len(shadow_test_y)
-    shadow_target_in = np.count_nonzero(shadow_test_y)
-    shadow_target_out = shadow_target - shadow_target_in
-    shadow_hit = np.count_nonzero(shadow_test_y == shadow_res)
-    shadow_hit_in = np.count_nonzero((shadow_test_y == 1) & (shadow_res == 1))
-    shadow_hit_out = np.count_nonzero((shadow_test_y == 0) & (shadow_res == 0))
-    print("Metrics for MIA:")
-    print(metrics.classification_report(shadow_test_y, shadow_res, labels=range(2)))
-    print("\nAll targets for MIA:",shadow_target)
-    print(f"\nWith {shadow_target_in} member targets and {shadow_target_out} non-mamber targets.\n")
-    print(f"Members hit:{shadow_hit_in}\nNon members hit:{shadow_hit_out}\nTotal hit:{shadow_hit} with ACC {shadow_hit/shadow_target}")
-    print('\nROC_AUC score is:')
-    print(metrics.roc_auc_score(shadow_test_y, shadow_res))
-    return metrics.roc_auc_score(shadow_test_y, shadow_res)
 
 class two_layer_GCN(torch.nn.Module):
     """
@@ -193,6 +178,42 @@ class Shadow_MIA_mlp():
         score = output_shadowres(shadow_test_y,shadow_res)
         return score 
 
+class Shadow_MIA_logi():
+    """
+    mia blackbox shadow classifier in logistic
+    """
+    def __init__(self, shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y, ss_dict, *args, **kwargs) -> None:
+        super(Shadow_MIA_logi, self).__init__()
+        self.model = LogisticRegression(penalty=ss_dict['penalty'], solver=ss_dict['solver'],max_iter=ss_dict['max_iter'],random_state=ss_dict['random_state'],verbose=1,l1_ratio=ss_dict['l1_ratio'])
+        self.train(shadow_train_x,shadow_train_y)
+        # self.evaluate(shadow_test_x,shadow_test_y)
+
+    def train(self,shadow_train_x,shadow_train_y):
+        self.model.fit(shadow_train_x,shadow_train_y)
+        
+    def evaluate(self,shadow_test_x,shadow_test_y):
+        shadow_res = self.model.predict(shadow_test_x)
+        score = output_shadowres(shadow_test_y,shadow_res)
+        return score
+
+class Shadow_MIA_ada():
+    """
+    mia blackbox shadow classifier in adaboost
+    """
+    def __init__(self, shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y, ss_dict, *args, **kwargs) -> None:
+        super(Shadow_MIA_ada, self).__init__()
+        self.model = AdaBoostClassifier(n_estimators=ss_dict['n_estimators'],algorithm=ss_dict['algorithm'],random_state=ss_dict['random_state'])
+        self.train(shadow_train_x,shadow_train_y)
+        # self.evaluate(shadow_test_x,shadow_test_y)
+
+    def train(self,shadow_train_x,shadow_train_y):
+        self.model.fit(shadow_train_x,shadow_train_y)
+        
+    def evaluate(self,shadow_test_x,shadow_test_y):
+        shadow_res = self.model.predict(shadow_test_x)
+        score = output_shadowres(shadow_test_y,shadow_res)
+        return score
+
 class vanilla_GCN_node():
     def __init__(self,ss,data,shadow) -> None:
         self.epochs = ss.args.epochs
@@ -232,7 +253,7 @@ class vanilla_GCN_node():
         self.majority_baseline = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         
-        self.shadow = 'Shadow' if shadow == 'shadow' else 'Vanilla'
+        self.shadow = shadow
         self.learning_rate 
         self.seed = ss.args.seed
         self.total_params = 0
@@ -241,6 +262,18 @@ class vanilla_GCN_node():
         self.data = data
         self.num_nodes = data.x.shape[0]
         self.num_edges = data.edge_index.shape[1]
+
+        self.private = ss.args.private
+        if self.private and self.shadow == 'vanilla':
+            self.shadow = "DP"
+        else:
+            self.private = False
+        self.total_samples = 1
+        self.noise_scale = ss.args.noise_scale
+        self.gradient_norm_bound = ss.args.gradient_norm_bound
+        self.lot_size = ss.args.lot_size
+        self.sample_size = ss.args.sample_size
+        self.delta = ss.args.delta
         self._init_model()
 
     
@@ -282,18 +315,33 @@ class vanilla_GCN_node():
         self.trainable_params = trainable_params
         print("Trainable parameters", self.trainable_params)
 
-        
-        if self.optim_type == 'sgd':
-            self.optimizer = torch.optim.SGD(model.parameters(),
-                                                lr=self.learning_rate,
-                                                weight_decay=self.weight_decay)
-
-        elif self.optim_type == 'adam':
-            self.optimizer = torch.optim.Adam(model.parameters(),
-                                                lr=self.learning_rate,
-                                                weight_decay=self.weight_decay)
+        if self.private:
+            if self.optim_type == 'sgd':
+                self.optimizer = DPSGD(model.parameters(), 
+                                       self.noise_scale,
+                                       self.gradient_norm_bound, 
+                                       self.lot_size,
+                                       self.sample_size, 
+                                       lr=self.learning_rate*100)
+            elif self.optim_type == 'adam':
+                self.optimizer = DPAdam(model.parameters(), 
+                                        self.noise_scale,
+                                        self.gradient_norm_bound,
+                                        self.lot_size, 
+                                        self.sample_size,
+                                        lr=self.learning_rate*100)
         else:
-            raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+            if self.optim_type == 'sgd':
+                self.optimizer = torch.optim.SGD(model.parameters(),
+                                                    lr=self.learning_rate,
+                                                    weight_decay=self.weight_decay)
+
+            elif self.optim_type == 'adam':
+                self.optimizer = torch.optim.Adam(model.parameters(),
+                                                    lr=self.learning_rate,
+                                                    weight_decay=self.weight_decay)
+            else:
+                raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
 
         if self.learning_rate_decay:
             self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1,
@@ -314,38 +362,92 @@ class vanilla_GCN_node():
         print('Training...\n')
         train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
         val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
-        
-        for epoch,_ in zip(train_bar,val_bar):
-            optimizer.zero_grad()
-            pred_prob_node = model(self.data)
-            loss = self.loss(pred_prob_node[self.data.train_mask],
-                                self.data.y[self.data.train_mask])
-            loss.backward()
-            optimizer.step()
-            
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+        if self.private:
+            private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
+            parameters = []
+            q = self.lot_size / self.total_samples
+                # 'Sampling ratio'
+                # Number of subgraphs in a lot divided by total number of subgraphs
+                # If no graph splitting, both values are 1
+            max_range = self.epochs / q  # max number of Ts
+            max_parameters = [(q, self.noise_scale, max_range)]
+            for epoch,_,_ in zip(train_bar,val_bar,private_bar):
+                
+                lot_t = 0  # For 1-graph datasets, always batch of 1
+                T_k = (lot_t + 1) + ((1 / q) * epoch)
 
-            train_acc, prec, rec, train_f1 = self.calculate_accuracy(
-                    pred_prob_node[self.data.train_mask],
-                    self.data.y[self.data.train_mask])
-            train_loss = loss.item()
-            
-            self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1,
-                     split=f'{self.shadow} train')
-            self.train_losses.append(train_loss)
-            self.train_accs.append(train_acc)
-            self.train_f1s.append(train_f1)
-            val_loss = self.evaluate_on_valid(model, epoch, val_bar)
-            
-            self.plot_learning_curve()
+                optimizer.zero_accum_grad()
+                optimizer.zero_sample_grad()
+                pred_prob_node = model(self.data)
+                loss = self.loss(pred_prob_node[self.data.train_mask],
+                                    self.data.y[self.data.train_mask])
+                loss.backward()
+                optimizer.per_sample_step()
+                optimizer.step(self.device)
 
-            if self.early_stopping:
-                early_stopping(val_loss)
-                if early_stopping.early_stop:
-                    break
+                parameters = [(q, self.noise_scale, T_k)]
+                eps, delta = get_priv(parameters, delta=self.delta,
+                                        max_lmbd=32)
+                maxeps, maxdelta = get_priv(max_parameters,
+                                            delta=self.delta, max_lmbd=32)
+                
+                private_bar.set_description(f"Spent privacy eps:{eps:.4f} / max eps:{maxeps:.4f}")
+                # print("Spent privacy (function accountant): \n", eps)
+                # print("Spent MAX privacy (function accountant): \n", maxeps)
+                if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+                    print("Old LR:", self.optimizer.param_groups[0]['lr'])
+                    self.scheduler.step()
+                    print("New LR:", self.optimizer.param_groups[0]['lr'])
+
+                train_acc, prec, rec, train_f1 = self.calculate_accuracy(
+                        pred_prob_node[self.data.train_mask],
+                        self.data.y[self.data.train_mask])
+                train_loss = loss.item()
+                
+                self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
+                self.train_losses.append(train_loss)
+                self.train_accs.append(train_acc)
+                self.train_f1s.append(train_f1)
+                val_loss = self.evaluate_on_valid(model, epoch, val_bar)
+                
+                self.plot_learning_curve()
+
+                if self.early_stopping:
+                    early_stopping(val_loss)
+                    if early_stopping.early_stop:
+                        break
+        else:
+            for epoch,_ in zip(train_bar,val_bar):    
+                optimizer.zero_grad()
+                pred_prob_node = model(self.data)
+                loss = self.loss(pred_prob_node[self.data.train_mask],
+                                    self.data.y[self.data.train_mask])
+                loss.backward()
+                optimizer.step()
+            
+                if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+                    print("Old LR:", self.optimizer.param_groups[0]['lr'])
+                    self.scheduler.step()
+                    print("New LR:", self.optimizer.param_groups[0]['lr'])
+
+                train_acc, prec, rec, train_f1 = self.calculate_accuracy(
+                        pred_prob_node[self.data.train_mask],
+                        self.data.y[self.data.train_mask])
+                train_loss = loss.item()
+                
+                self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1,
+                        split=f'{self.shadow} train')
+                self.train_losses.append(train_loss)
+                self.train_accs.append(train_acc)
+                self.train_f1s.append(train_f1)
+                val_loss = self.evaluate_on_valid(model, epoch, val_bar)
+                
+                self.plot_learning_curve()
+
+                if self.early_stopping:
+                    early_stopping(val_loss)
+                    if early_stopping.early_stop:
+                        break
 
         if self.early_stopping:
             return -early_stopping.best_score
