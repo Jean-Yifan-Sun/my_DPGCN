@@ -185,4 +185,142 @@ def subsample_mask(data,mask,rate):
         full_class_indexes = (data.y == cls_val).nonzero().squeeze()
         train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), mask.nonzero().squeeze().numpy()))
         sample_idx_tensor = torch.randperm(
- 
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    return sample_tensor
+
+    
+def subsample_graph_all(data,rate):    
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        sample_idx_tensor = torch.randperm(
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    data.x = data.x[sample_tensor]
+    data.train_mask = data.train_mask[sample_tensor]
+    data.val_mask = data.val_mask[sample_tensor]
+    data.test_mask = data.test_mask[sample_tensor]
+    data.y = data.y[sample_tensor]
+    old_to_new_node_idx = {old_idx.item(): new_idx
+                           for new_idx, old_idx in enumerate(sample_tensor)}
+    
+
+    # Updating adjacency matrix
+    new_edge_index_indexes = []
+    for idx in tqdm(range(data.edge_index.shape[1])):
+        if (data.edge_index[0][idx] in sample_tensor) and \
+           (data.edge_index[1][idx] in sample_tensor):
+            new_edge_index_indexes.append(idx)
+
+    new_edge_idx_temp = torch.index_select(
+            data.edge_index, 1, torch.tensor(new_edge_index_indexes)
+            )
+    new_edge_idx_0 = [old_to_new_node_idx[new_edge_idx_temp[0][a].item()]
+                      for a in range(new_edge_idx_temp.shape[1])]
+    new_edge_idx_1 = [old_to_new_node_idx[new_edge_idx_temp[1][a].item()]
+                      for a in range(new_edge_idx_temp.shape[1])]
+    data.edge_index = torch.stack((torch.tensor(new_edge_idx_0),
+                                   torch.tensor(new_edge_idx_1)))
+    
+def subsample_graph_pyg(data,rate):
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        sample_idx_tensor = torch.randperm(
+                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    return data.subgraph(sample_tensor) 
+
+def subsample_graph_both_pyg(data,rate):
+    """
+    divide two subest of graph from the original graph that matches the dist in original graph and make sure they dont share any common node
+    """
+    assert rate<=.5 
+    class_counts = torch.bincount(data.y)
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes1 = []
+    all_new_class_indexes2 = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = full_class_indexes
+        rand_idx = torch.randperm(train_class_indexes.shape[0])
+
+        sample_idx_tensor1 = rand_idx[:new_class_counts[cls_val]]
+        new_class_indexes1 = train_class_indexes[sample_idx_tensor1]
+        all_new_class_indexes1.append(new_class_indexes1)
+
+        sample_idx_tensor2 = rand_idx[-new_class_counts[cls_val]:]
+        new_class_indexes2 = train_class_indexes[sample_idx_tensor2]
+        all_new_class_indexes2.append(new_class_indexes2)
+
+    sample_tensor1 = torch.cat(all_new_class_indexes1)
+    sample_tensor2 = torch.cat(all_new_class_indexes2)
+    return data.subgraph(sample_tensor1),data.subgraph(sample_tensor2)
+
+def output_shadowres(shadow_test_y,shadow_res):
+    shadow_target = len(shadow_test_y)
+    shadow_target_in = np.count_nonzero(shadow_test_y)
+    shadow_target_out = shadow_target - shadow_target_in
+    shadow_hit = np.count_nonzero(shadow_test_y == shadow_res)
+    shadow_hit_in = np.count_nonzero((shadow_test_y == 1) & (shadow_res == 1))
+    shadow_hit_out = np.count_nonzero((shadow_test_y == 0) & (shadow_res == 0))
+    print("Metrics for MIA:")
+    print(metrics.classification_report(shadow_test_y, shadow_res, labels=range(2)))
+    print("\nAll targets for MIA:",shadow_target)
+    print(f"\nWith {shadow_target_in} member targets and {shadow_target_out} non-mamber targets.\n")
+    print(f"Members hit:{shadow_hit_in}\nNon members hit:{shadow_hit_out}\nTotal hit:{shadow_hit} with ACC {shadow_hit/shadow_target}")
+    print('\nROC_AUC score is:')
+    print(metrics.roc_auc_score(shadow_test_y, shadow_res))
+    return metrics.roc_auc_score(shadow_test_y, shadow_res)
+
+def subsample_mask_graph(data,mask,rate):
+    class_counts = torch.bincount(data.y[mask])
+    new_class_counts = torch.floor_divide(class_counts, 1/rate).long()
+    all_new_class_indexes = []
+    all_out_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data.y == cls_val).nonzero().squeeze()
+        train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), mask.nonzero().squeeze().numpy()))
+        sample_in_out_tensor = torch.randperm(train_class_indexes.shape[0])
+        sample_idx_tensor = sample_in_out_tensor[:new_class_counts[cls_val]]
+        sample_out_tensor = sample_in_out_tensor[new_class_counts[cls_val]:]
+        new_class_indexes = train_class_indexes[sample_idx_tensor]
+        out_class_indexes = train_class_indexes[sample_out_tensor]
+        all_new_class_indexes.append(new_class_indexes)
+        all_out_class_indexes.append(out_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    out_tensor = torch.cat(all_out_class_indexes)
+    res = []
+    for i in [sample_tensor,out_tensor]:
+        new_mask = torch.zeros_like(mask,dtype=bool)
+        for j in i:
+            new_mask[j] = True
+        res.append(new_mask)
+    
+    return res
+
+def subsample_mask_graph_full(data,rate):
+    [train_mask_1,train_mask_2] = subsample_mask_graph(data=data,mask=data.train_mask,rate=rate)
+    [test_mask_1,test_mask_2] = subsample_mask_graph(data=data,mask=data.test_mask,rate=rate)
+    [val_mask_1,val_mask_2] = subsample_mask_graph(data=data,mask=data.val_mask,rate=rate)
+    new_data = data.clone()
+    data.train_mask = train_mask_1
+    data.test_mask = test_mask_1
+    data.val_mask = val_mask_1
+    new_data.train_mask = train_mask_2
+    new_data.test_mask = test_mask_2
+    new_data.val_mask = val_mask_2
+    return data,new_data
