@@ -20,8 +20,10 @@ class node_GCN():
         # Setting the seed
         ss = Settings()
         ss.make_dirs()
+        self.ss = ss
+        device_num = ss.args.device_num
         try:
-            torch.cuda.set_device(3)
+            torch.cuda.set_device(device_num)
         except:
             torch.cuda.set_device(0) 
         self.seed = ss.args.seed
@@ -33,11 +35,23 @@ class node_GCN():
         torch.backends.cudnn.deterministic = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        
+        self.shadow_res = {
+                "Vanilla train acc":[],
+                "Vanilla train loss":[],
+                "Vanilla test acc":[],
+                "Vanilla test loss":[]}
         
         if ss.args.mia == 'shadow':
             self.mia_shadow_mode = ss.args.mia_shadow_mode
             self.shadow_res = {
+                "Vanilla train acc":[],
+                "Vanilla train loss":[],
+                "Vanilla test acc":[],
+                "Vanilla test loss":[],
+                "Shadow train acc":[],
+                "Shadow train loss":[],
+                "Shadow test acc":[],
+                "Shadow test loss":[],
                 "MIA mlp":[],
                 "MIA svm":[],
                 "MIA ranfor":[],
@@ -47,32 +61,38 @@ class node_GCN():
                 "MIA confidence thr":[],
                 "MIA seed":[]
             }
+            if ss.args.private:
+                self.shadow_res['epsilon'] = []
+                self.shadow_res['delta'] = []
             for i in trange(10,desc='10 Shadow dataset',leave=True):
                 seed = self.seed+i*self.seed
                 self.train_vanilla(ss,seed)
                 print(f'Using {self.mia_shadow_mode} as MIA mode')
                 
-                self.shadow_model, self.shadow_data = self.train_shadow(ss,seed)
+                self.train_shadow(ss,seed)
                 self.shadow_res['MIA seed'].append(seed)
-                print('\n<<<Begin attack data instruction>>>\n')
+                print('\n<<<Begin attack data construction>>>\n')
                 self.get_shadow_data(shadow_model=self.shadow_model,shadow_data=self.shadow_data)
-                print('<<<Done attack data instruction, begin attack>>>\n')
+                print('<<<Done attack data construction, begin attack>>>\n')
                 self.shadow_MIA_mlp()
                 self.shadow_MIA_svm()
                 self.shadow_MIA_ranfor()
                 self.shadow_MIA_logi()
                 self.shadow_MIA_ada()
                 self.confidence_MIA()
+            new_res = pd.DataFrame(self.shadow_res)
+            path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_result.csv')
+            if ss.args.private:
+                path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_{ss.args.noise_scale}_result.csv')
+            # try: 
+            #     old_res = pd.read_csv(path)
+            #     new_res = pd.concat([old_res,new_res])
+            # except:
+            new_res.to_csv(path)
+            print(new_res)
         else:
             self.train_vanilla(ss)
-        new_res = pd.DataFrame(self.shadow_res)
-        path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_result.csv')
-        # try: 
-        #     old_res = pd.read_csv(path)
-        #     new_res = pd.concat([old_res,new_res])
-        # except:
-        new_res.to_csv(path)
-        print(new_res)
+        
         then = time.time()
         runtime = then - now
         print(f"\n--- Script completed in {runtime} seconds ---\n")
@@ -96,7 +116,15 @@ class node_GCN():
         
         self.vanilla_model.output_results(best_score,shadow='vanilla')
         print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
+        self.shadow_res["Vanilla train acc"].append(f'{self.vanilla_model.train_accs[-1]:.4f}')
+        self.shadow_res["Vanilla train loss"].append(f'{self.vanilla_model.train_losses[-1]:.4f}')
+        self.shadow_res["Vanilla test acc"].append(f'{test_acc:.4f}')
+        self.shadow_res["Vanilla test loss"].append(f'{test_loss:.4f}')
         
+        if self.ss.args.private:
+            private_paras = self.vanilla_model.private_paras
+            self.shadow_res['epsilon'].append(f'{private_paras[0]:.4f}')
+            self.shadow_res['delta'].append(f'{private_paras[1]:.4f}')
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
@@ -110,18 +138,21 @@ class node_GCN():
             torch.backends.cudnn.deterministic = True
 
         dataset = ss.args.dataset
-        shadow_data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=True,mia_subsample_rate=ss.args.mia_subsample_rate)
-        model = vanilla_GCN_node(ss,data=shadow_data,shadow='shadow')
+        self.shadow_data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=True,mia_subsample_rate=ss.args.mia_subsample_rate)
+        self.shadow_model = vanilla_GCN_node(ss,data=self.shadow_data,shadow='shadow')
         
-        best_score = model.train()
-        test_loss, test_acc, test_prec, test_rec, test_f1 = model.evaluate_on_test()
+        best_score = self.shadow_model.train()
+        test_loss, test_acc, test_prec, test_rec, test_f1 = self.shadow_model.evaluate_on_test()
         
-        model.output_results(best_score,shadow='shadow')
+        self.shadow_model.output_results(best_score,shadow='shadow')
         print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
+        self.shadow_res["Shadow train acc"].append(f'{self.shadow_model.train_accs[-1]:.4f}')
+        self.shadow_res["Shadow train loss"].append(f'{self.shadow_model.train_losses[-1]:.4f}')
+        self.shadow_res["Shadow test acc"].append(f'{test_acc:.4f}')
+        self.shadow_res["Shadow test loss"].append(f'{test_loss:.4f}')
     
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
-        return model,shadow_data
     
     def get_dataloader(self,dataset='cora', num_val=None, num_test=None,shadow_set=False,mia_subsample_rate=1):
         '''
@@ -147,18 +178,30 @@ class node_GCN():
 
         elif dataset == 'physics':
             data = get_dataset(cls="Coauthor",name="Physics",num_test=num_test,num_val=num_val)
+
+        elif dataset == 'reddit':
+            data = get_dataset(cls="Reddit")
+        
+        elif dataset == 'flickr':
+            data = get_dataset(cls="Flickr")
+        elif dataset == 'github':
+            data = get_dataset(cls="GitHub")
+        elif dataset == 'lastfmasia':
+            data = get_dataset(cls="LastFMAsia")
+        elif dataset in ['RU','PT','DE','FR','ES','EN']:
+            data = get_dataset(cls="Twitch",name=dataset)
         else:
             raise Exception("Incorrect dataset specified.")
         data = node_split(data[0],num_val=num_val,num_test=num_test)
-        # vanilla,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
-        vanilla,shadow = subsample_mask_graph_full(data,mia_subsample_rate)
+        vanilla,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
+        # vanilla,shadow = subsample_mask_graph_full(data,mia_subsample_rate)
         print(f"\nGet dataset {dataset}\n")
         if shadow_set:
             print("Shadow dataset Subsampling graph...")
             # subsample_graph(shadow_data, rate=self.mia_subsample_rate,
                             # maintain_class_dists=True)
             data = shadow
-            # data = node_split(data,num_val=num_val,num_test=num_test)
+            data = node_split(data,num_val=num_val,num_test=num_test)
             
             print(f"Shadow: Total number of nodes: {data.x.shape[0]}")
             print(f"Shadow: Total number of edges: {data.edge_index.shape[1]}")
@@ -167,7 +210,7 @@ class node_GCN():
             print(f"Shadow: Number of test nodes: {data.test_mask.sum().item()}")
         else:
             data = vanilla
-            # data = node_split(data,num_val=num_val,num_test=num_test)
+            data = node_split(data,num_val=num_val,num_test=num_test)
             print(f"Total number of nodes: {data.x.shape[0]}")
             print(f"Total number of edges: {data.edge_index.shape[1]}")
             print(f"Number of train nodes: {data.train_mask.sum().item()}")

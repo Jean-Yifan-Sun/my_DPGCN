@@ -86,14 +86,19 @@ def get_dataset(cls,name=None,num_val=None,num_test=None):
                         "Planetoid":["Cora","CiteSeer","PubMed"],
                         "KarateClub":[],
                         "NELL":[],
+                        "Reddit":[],
+                        "Flickr":[],
+                        "GitHub":[],
+                        "LastFMAsia":[],
+                        "Twitch":["RU", "PT","DE","FR","ES","EN"],
                         "CitationFull":["Cora", "Cora_ML", "CiteSeer", "DBLP", "PubMed"],
                         "Coauthor":["CS", "Physics"],
                         "Amazon":["Computers","Photo"]
                         }    
     dataset_keys = list(dataset_dic_demo.keys())
 
-    transform = T.RandomNodeSplit(split="train_rest",num_val=num_val,num_test=num_test)
-
+    # transform = T.RandomNodeSplit(split="train_rest",num_val=num_val,num_test=num_test)
+    transform = None
     if not cls in dataset_keys:
         raise NameError(f"No matching name for dataset class {cls}")
     if cls == "GNNBenchmark":
@@ -128,8 +133,21 @@ def get_dataset(cls,name=None,num_val=None,num_test=None):
     elif cls == "Amazon":
         if name in ["Computers","Photo"]:
             temp = datasets.Amazon(root=ROOT,name=name,transform=transform)
+    elif cls == "Reddit":
+        temp = datasets.Reddit(root=os.path.join(ROOT,'Reddit'))
+    elif cls == "Flickr":
+        temp = datasets.Flickr(root=os.path.join(ROOT,'Flickr'))
+    elif cls == "GitHub":
+        temp = datasets.GitHub(root=os.path.join(ROOT,'GitHub'))
+    elif cls == "LastFMAsia":
+        temp = datasets.LastFMAsia(root=os.path.join(ROOT,'LastFMAsia'))
+    elif cls == "Twitch":
+        if name in ["RU", "PT","DE","FR","ES","EN"]:
+            temp = datasets.Twitch(root=os.path.join(ROOT,'Twitch'),name=name)
         else:
             raise NameError(f"No matching name for dataset {name}")
+    else:
+        raise NameError(f"No matching name for dataset {name}")
         
     return temp
 

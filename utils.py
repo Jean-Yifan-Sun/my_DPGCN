@@ -296,7 +296,7 @@ def subsample_mask_graph(data,mask,rate):
         train_class_indexes = torch.tensor(np.intersect1d(full_class_indexes.numpy(), mask.nonzero().squeeze().numpy()))
         sample_in_out_tensor = torch.randperm(train_class_indexes.shape[0])
         sample_idx_tensor = sample_in_out_tensor[:new_class_counts[cls_val]]
-        sample_out_tensor = sample_in_out_tensor[new_class_counts[cls_val]:]
+        sample_out_tensor = sample_in_out_tensor[-new_class_counts[cls_val]:]
         new_class_indexes = train_class_indexes[sample_idx_tensor]
         out_class_indexes = train_class_indexes[sample_out_tensor]
         all_new_class_indexes.append(new_class_indexes)
@@ -324,3 +324,32 @@ def subsample_mask_graph_full(data,rate):
     new_data.test_mask = test_mask_2
     new_data.val_mask = val_mask_2
     return data,new_data
+
+def matain_same_split_dist(data1,data2):
+    class_counts = torch.bincount(data1.y[data1.train_mask])
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data2.y == cls_val).nonzero().squeeze()
+        sample_tensor = torch.randperm(full_class_indexes.shape[0])
+        new_class_indexes = full_class_indexes[sample_tensor]
+        new_class_indexes = new_class_indexes[:class_counts[cls_val]]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    new_mask = torch.zeros_like(data1.train_mask,dtype=bool)
+    for i in sample_tensor:
+        new_mask[i] = True
+    data2.train_mask = new_mask
+
+    class_counts = torch.bincount(data1.y[data1.val_mask])
+    all_new_class_indexes = []
+    for cls_val in range(class_counts.shape[0]):
+        full_class_indexes = (data2.y == cls_val).nonzero().squeeze()
+        sample_tensor = torch.randperm(full_class_indexes.shape[0])
+        new_class_indexes = full_class_indexes[sample_tensor]
+        new_class_indexes = new_class_indexes[:class_counts[cls_val]]
+        all_new_class_indexes.append(new_class_indexes)
+    sample_tensor = torch.cat(all_new_class_indexes)
+    new_mask = torch.zeros_like(data1.trainval_mask_mask,dtype=bool)
+    for i in sample_tensor:
+        new_mask[i] = True
+    data2.val_mask = new_mask    

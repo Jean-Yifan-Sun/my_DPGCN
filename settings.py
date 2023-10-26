@@ -60,7 +60,8 @@ def parse_arguments():
 
     argparser.add_argument("--mia_shadow_mode", type=str, default='tsts',
                            help='tsts or tstf')
-
+    argparser.add_argument("--device_num", type=int, default='3',
+                           help='cuda device number')
     args = argparser.parse_args()
 
     return args

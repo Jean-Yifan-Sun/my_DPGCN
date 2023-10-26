@@ -411,7 +411,7 @@ class vanilla_GCN_node():
                 val_loss = self.evaluate_on_valid(model, epoch, val_bar)
                 
                 self.plot_learning_curve()
-
+                self.private_paras = [eps, delta]
                 if self.early_stopping:
                     early_stopping(val_loss)
                     if early_stopping.early_stop:
@@ -619,6 +619,5 @@ class vanilla_GCN_node():
             shadow_test_y = shadow_test_y[indices]
             shadow_test_x_label = shadow_test_x_label[indices]
             shadow_test_x_label = one_hot(shadow_test_x_label)
-        return shadow_test_x,shadow_test_y,shadow_test_x_label
-        
+        return shadow_test_x,shadow_test_y,shadow_test_x_label    
  
