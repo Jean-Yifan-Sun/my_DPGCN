@@ -16,11 +16,13 @@ def str2bool(val):
 def parse_arguments():
     argparser = argparse.ArgumentParser()
     argparser.add_argument("--epochs", type=int, default=301)
+    argparser.add_argument("--shadow_epochs", type=int, default=301)
     argparser.add_argument("--num_val", type=int, default=.1 )
     argparser.add_argument("--num_test", type=int, default=.45)
     argparser.add_argument("--k_layers", type=int, default=2)
     argparser.add_argument("--hidden_dim", type=int, default=256, nargs="+")
     argparser.add_argument("--learning_rate", type=float, default=0.0001)
+    argparser.add_argument("--shadow_learning_rate", type=float, default=0.0001)
     argparser.add_argument("--weight_decay", type=float, default=0.01)
     argparser.add_argument("--momentum", type=float, default=0.9)
     argparser.add_argument("--amsgrad", type=str2bool, nargs='?',
@@ -38,7 +40,7 @@ def parse_arguments():
     
     argparser.add_argument("--split_graph", type=str2bool, nargs='?',
                            const=True, default=False)
-    argparser.add_argument("--split_n_subgraphs", type=int, default=10)
+    argparser.add_argument("--split_n_subgraphs", type=int, default=1)
 
     argparser.add_argument("--private", type=str2bool, nargs='?',
                            const=True, default=False)

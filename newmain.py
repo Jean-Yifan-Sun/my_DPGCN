@@ -83,7 +83,7 @@ class node_GCN():
             new_res = pd.DataFrame(self.shadow_res)
             path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_result.csv')
             if ss.args.private:
-                path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_{ss.args.noise_scale}_result.csv')
+                path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_{ss.args.noise_scale}_{ss.args.split_n_subgraphs}_result.csv')
             # try: 
             #     old_res = pd.read_csv(path)
             #     new_res = pd.concat([old_res,new_res])
@@ -107,24 +107,33 @@ class node_GCN():
             torch.backends.cudnn.deterministic = True
         dataset = ss.args.dataset
         self.data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=False,mia_subsample_rate=ss.args.mia_subsample_rate)
-        self.vanilla_model = vanilla_GCN_node(ss,
+
+        if ss.args.private:
+            shadow = 'DP'
+            self.vanilla_model = vanilla_GCN_node(ss,
                                               data=self.data,
-                                              shadow='vanilla')
+                                              shadow=shadow)
+            best_score = self.vanilla_model.train_dp() 
+            private_paras = self.vanilla_model.private_paras
+            self.shadow_res['epsilon'].append(f'{private_paras[0]:.4f}')
+            self.shadow_res['delta'].append(f'{private_paras[1]:.4f}') 
+        else:
+            shadow = 'vanilla'
+            self.vanilla_model = vanilla_GCN_node(ss,
+                                                data=self.data,
+                                                shadow=shadow)
+            
+            best_score = self.vanilla_model.train_vanilla()
         
-        best_score = self.vanilla_model.train()
         test_loss, test_acc, test_prec, test_rec, test_f1 = self.vanilla_model.evaluate_on_test()
         
-        self.vanilla_model.output_results(best_score,shadow='vanilla')
+        self.vanilla_model.output_results(best_score,shadow=shadow)
         print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         self.shadow_res["Vanilla train acc"].append(f'{self.vanilla_model.train_accs[-1]:.4f}')
         self.shadow_res["Vanilla train loss"].append(f'{self.vanilla_model.train_losses[-1]:.4f}')
         self.shadow_res["Vanilla test acc"].append(f'{test_acc:.4f}')
         self.shadow_res["Vanilla test loss"].append(f'{test_loss:.4f}')
-        
-        if self.ss.args.private:
-            private_paras = self.vanilla_model.private_paras
-            self.shadow_res['epsilon'].append(f'{private_paras[0]:.4f}')
-            self.shadow_res['delta'].append(f'{private_paras[1]:.4f}')
+            
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
@@ -141,7 +150,7 @@ class node_GCN():
         self.shadow_data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=True,mia_subsample_rate=ss.args.mia_subsample_rate)
         self.shadow_model = vanilla_GCN_node(ss,data=self.shadow_data,shadow='shadow')
         
-        best_score = self.shadow_model.train()
+        best_score = self.shadow_model.train_vanilla()
         test_loss, test_acc, test_prec, test_rec, test_f1 = self.shadow_model.evaluate_on_test()
         
         self.shadow_model.output_results(best_score,shadow='shadow')

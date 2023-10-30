@@ -54,7 +54,7 @@ def get_train_edge_count(data, split_graph=False):
 
     return num_train_edges, num_test_edges
 
-def random_graph_split(data, n_subgraphs=10):
+def random_graph_split(data, n_subgraphs=10,device='cpu'):
     '''
     Divide a graph into subgraphs using a random split:
         For n subsets, place nodes into subsets then for each node pair in
@@ -64,7 +64,8 @@ def random_graph_split(data, n_subgraphs=10):
           with data.val_mask and data.test_mask
     '''
     full_len = data.x.shape[0]
-    sample_tensor = torch.arange(full_len)[data.train_mask]
+    sample_tensor = torch.arange(full_len).to(device)
+    sample_tensor = sample_tensor[data.train_mask]
     sample_tensor = sample_tensor[torch.randperm(sample_tensor.size()[0])]
 
     batch_indexes = np.array_split(sample_tensor, n_subgraphs)
@@ -237,8 +238,7 @@ def subsample_graph_pyg(data,rate):
     for cls_val in range(class_counts.shape[0]):
         full_class_indexes = (data.y == cls_val).nonzero().squeeze()
         train_class_indexes = full_class_indexes
-        sample_idx_tensor = torch.randperm(
-                train_class_indexes.shape[0])[:new_class_counts[cls_val]]
+        sample_idx_tensor = torch.randperm(train_class_indexes.shape[0])[:new_class_counts[cls_val]]
         new_class_indexes = train_class_indexes[sample_idx_tensor]
         all_new_class_indexes.append(new_class_indexes)
     sample_tensor = torch.cat(all_new_class_indexes)
