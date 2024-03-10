@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from sklearn import metrics
+from torch_geometric.utils import *
 
 '''
 Early stopping for the main network.
@@ -353,3 +354,28 @@ def matain_same_split_dist(data1,data2):
     for i in sample_tensor:
         new_mask[i] = True
     data2.val_mask = new_mask    
+
+def get_neighbors(edge_index,node_idx):
+    "给出给定节点为起点的所有邻居节点的idx"
+    subset, edge_index, mapping, edge_mask = k_hop_subgraph(node_idx=node_idx,
+                                                            edge_index=edge_index,
+                                                            num_hops=1)
+    subset = subset.tolist()
+    subset.remove(node_idx)
+    
+    if len(subset) == 0:
+        return False
+    return torch.Tensor(subset)
+    
+def sample_neighbors_with_p(neighbors,p):
+    "用p为概率对neighbors里的节点进行抽样"
+    p_tensor = torch.ones_like(neighbors) * p
+    mask = torch.bernoulli(p_tensor).bool()
+    return neighbors[mask]
+
+def dfs_with_depth(node,neighbors_dict,depth):
+    "从node开始按照depth使用dfs搜寻"
+    all_nodes = [node]
+    for i in range(depth):
+        for j in all_nodes:
+            all_nodes.extend(neighbors_dict[j])
