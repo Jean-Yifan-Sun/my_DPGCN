@@ -2,7 +2,9 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from sklearn import metrics
+import torch_geometric
 from torch_geometric.utils import *
+from torch_geometric.data import Data
 
 '''
 Early stopping for the main network.
@@ -356,7 +358,9 @@ def matain_same_split_dist(data1,data2):
     data2.val_mask = new_mask    
 
 def get_neighbors(edge_index,node_idx):
-    "给出给定节点为起点的所有邻居节点的idx"
+    """
+    给出给定节点为起点的所有邻居节点的idx
+    """
     subset, edge_index, mapping, edge_mask = k_hop_subgraph(node_idx=node_idx,
                                                             edge_index=edge_index,
                                                             num_hops=1)
@@ -368,14 +372,43 @@ def get_neighbors(edge_index,node_idx):
     return torch.Tensor(subset)
     
 def sample_neighbors_with_p(neighbors,p):
-    "用p为概率对neighbors里的节点进行抽样"
+    """
+    用p为概率对neighbors里的节点进行抽样
+    """
     p_tensor = torch.ones_like(neighbors) * p
     mask = torch.bernoulli(p_tensor).bool()
     return neighbors[mask]
 
 def dfs_with_depth(node,neighbors_dict,depth):
-    "从node开始按照depth使用dfs搜寻"
+    """
+    从node开始按照depth使用dfs搜寻
+    """
+    all_nodes_set = set()
     all_nodes = [node]
     for i in range(depth):
+        temp = []
         for j in all_nodes:
-            all_nodes.extend(neighbors_dict[j])
+            temp.extend(neighbors_dict[j])
+        all_nodes = temp.copy()
+        all_nodes_set.update(all_nodes)
+    return all_nodes_set
+
+def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int):
+    """
+    实现完整的根据occurrence constraints进行采样步骤
+    """
+    assert data.is_undirected()
+    num_nodes = data.x.shape[0]
+    adjacent = {}
+    for i in range(num_nodes):
+        neighbors = get_neighbors(data.edge_index,i)
+        if neighbors:
+            p = k / len(neighbors)
+            sampled_neighbors = sample_neighbors_with_p(neighbors,p)
+            adjacent[i] = sampled_neighbors
+
+    subgraphs = {}
+    for i in list(adjacent.keys()):
+        subnodes = dfs_with_depth(i,adjacent,depth)
+        subnodes = torch.Tensor(list(subnodes))
+        subgraphs[i] = data.subgraph(subnodes)
