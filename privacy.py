@@ -99,3 +99,48 @@ class DPAdam(Adam):
                 p.grad.data += torch.empty(p.grad.data.shape).normal_(mean=0.0, std=(self.noise_scale*self.gradient_norm_bound)).to(device)
                 p.grad.data = torch.sum(p.grad.data, dim=0) * self.sample_size / self.lot_size
         super(DPAdam, self).step(*args, **kwargs)
+
+class DP_GCN_SGD(SGD):
+    """
+    实现GCN使用DP优化器迭代
+    """
+    def __init__(self, params, noise_scale, gradient_norm_bound, lot_size,
+                 sample_size, lr=0.01):
+        super(DP_GCN_SGD, self).__init__(params, lr=lr)
+        self.noise_scale = noise_scale
+        self.gradient_norm_bound = gradient_norm_bound
+        self.lot_size = lot_size
+        self.sample_size = sample_size
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.requires_grad:
+                    p.accumulated_grads = []
+
+
+    def zero_sample_grad(self):
+        super(DP_GCN_SGD, self).zero_grad()
+
+    def per_sample_step(self):
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.requires_grad:
+                    per_sample_grad = p.grad.detach().clone()
+
+                    ## Clipping gradient
+                    clip_grad_norm_(per_sample_grad,
+                                    max_norm=self.gradient_norm_bound)
+                    p.accumulated_grads.append(per_sample_grad)
+    
+    def step(self, device, *args, **kwargs):
+        for group in self.param_groups:
+            for p in group['params']:
+                if p.grad is None:
+                    continue
+                # DP:
+                ## Adding noise and aggregating on batch:
+                p.grad.data = torch.stack(p.accumulated_grads, dim=0).clone()
+                p.grad.data = torch.sum(p.grad.data, dim=0)
+                p.grad.data += torch.empty(p.grad.data.shape).normal_(mean=0.0, std=(self.noise_scale*self.gradient_norm_bound)).to(device)
+                
+                p.grad.data = p.grad.data / self.lot_size
+        super(DPSGD, self).step(*args, **kwargs)
