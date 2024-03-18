@@ -159,7 +159,7 @@ class GCN_DP_AC():
     def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,epochs:int,delta:None) -> None:
         self.max_terms_per_node = (K ^ (r - 1) - 1) / (K - 1)
         self.num_training_steps = epochs
-        self.noise_multiplier = noise_scale
+        self.noise_multiplier = noise_scale / C
         self.num_samples = Ntr
         
         if delta:
