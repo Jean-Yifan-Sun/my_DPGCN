@@ -107,13 +107,13 @@ class DPAdam(Adam):
                 p.grad.data = torch.sum(p.grad.data, dim=0) * self.sample_size / self.lot_size
         super(DPAdam, self).step(*args, **kwargs)
 
-class DP_GCN_SGD(SGD):
+class GCN_DPSGD(SGD):
     """
     实现GCN使用DP优化器迭代
     """
     def __init__(self, params, noise_scale, gradient_norm_bound, lot_size,
                  sample_size, lr=0.01):
-        super(DP_GCN_SGD, self).__init__(params, lr=lr)
+        super(GCN_DPSGD, self).__init__(params, lr=lr)
         self.noise_scale = noise_scale
         self.gradient_norm_bound = gradient_norm_bound
         self.lot_size = lot_size
@@ -125,7 +125,7 @@ class DP_GCN_SGD(SGD):
 
 
     def zero_sample_grad(self):
-        super(DP_GCN_SGD, self).zero_grad()
+        super(GCN_DPSGD, self).zero_grad()
 
     def per_sample_step(self):
         for group in self.param_groups:
@@ -147,7 +147,7 @@ class DP_GCN_SGD(SGD):
                 ## Adding noise and aggregating on batch:
                 p.grad.data = torch.stack(p.accumulated_grads, dim=0).clone()
                 p.grad.data = torch.sum(p.grad.data, dim=0)
-                p.grad.data += torch.empty(p.grad.data.shape).normal_(mean=0.0, std=(self.noise_scale*self.gradient_norm_bound)).to(device)
+                p.grad.data += torch.empty(p.grad.data.shape).normal_(mean=0.0, std=(self.noise_scale)).to(device)
                 
                 p.grad.data = p.grad.data / self.lot_size
         super(DPSGD, self).step(*args, **kwargs)
@@ -155,6 +155,8 @@ class DP_GCN_SGD(SGD):
 class GCN_DP_AC():
     """
     accountant for DP GCN 
+
+    If the norms of the values are bounded ||v_i|| <= C, the noise_multiplier is defined as s / C.
     """
     def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,epochs:int,delta:None) -> None:
         self.max_terms_per_node = (K ^ (r - 1) - 1) / (K - 1)
@@ -176,6 +178,26 @@ class GCN_DP_AC():
                                                   num_samples=self.num_samples,
                                                   batch_size=self.batch_size,
                                                   max_terms_per_node=self.max_terms_per_node)
+
+class SGD_DP_AC():
+    """
+    accountant for DPSGD
+
+    'noise_scale': If the norms of the values are bounded ||v_i|| <= C, the noise_multiplier is defined as s / C.
+    sampling_probability: The probability of sampling a single sample every batch. For uniform sampling without replacement, this is (batch_size / num_samples)
+    Each record in the dataset is included in the sample independently with probability `sampling_probability`. Then the `DpEvent` `event` is applied to the sample of records.
+    """
+    def __init__(self,noise_scale:float,clip_bound:float,sample_ratio:float,epochs:int,delta:None) -> None:
+        self.num_training_steps = epochs
+        self.noise_multiplier = noise_scale / clip_bound
+        self.target_delta = delta
+        self.sampling_probability = sample_ratio
+
+    def get_privacy(self) -> float:
+        return dpsgd_privacy_accountant(num_training_steps=self.num_training_steps, 
+                                        noise_multiplier=self.noise_multiplier,
+                                        target_delta=self.target_delta,
+                                        sampling_probability=self.sampling_probability)
 
 
 def multiterm_dpsgd_privacy_accountant(num_training_steps,
