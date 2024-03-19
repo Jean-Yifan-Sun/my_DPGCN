@@ -232,7 +232,11 @@ class node_GCN():
         shadow_train_x,shadow_train_y, = model.get_shadow_data(shadow_data)
         model = self.vanilla_model
         shadow_test_x,shadow_test_y,shadow_test_x_label = model.get_vanilla_data(self.data)
-        self.shadow_mia_data_list = [shadow_train_x.detach().cpu().numpy(),shadow_train_y.detach().cpu().numpy(),shadow_test_x.detach().cpu().numpy(),shadow_test_y.detach().cpu().numpy(),shadow_test_x_label.detach().cpu().numpy()]     
+        self.shadow_mia_data_list = [shadow_train_x.detach().cpu().numpy(),
+                                     shadow_train_y.detach().cpu().numpy(),
+                                     shadow_test_x.detach().cpu().numpy(),
+                                     shadow_test_y.detach().cpu().numpy(),
+                                     shadow_test_x_label.detach().cpu().numpy()]     
 
     def shadow_MIA_mlp(self):
         
