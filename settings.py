@@ -64,6 +64,13 @@ def parse_arguments():
                            help='tsts or tstf')
     argparser.add_argument("--device_num", type=int, default='3',
                            help='cuda device number')
+    argparser.add_argument("--rdp", type=str2bool, default=False,
+                           help='cuda device number')
+    argparser.add_argument("--rdp_k", type=int, default=3,
+                           help='occurance constrain k')
+    argparser.add_argument("--rdp_batchsize", type=float, default=.3,
+                           help='occurance constrain k')
+
     args = argparser.parse_args()
 
     return args

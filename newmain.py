@@ -109,10 +109,13 @@ class node_GCN():
         self.data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=False,mia_subsample_rate=ss.args.mia_subsample_rate)
 
         if ss.args.private:
-            shadow = 'DP'
+            if ss.args.rdp:
+                shadow = 'RDP'
+            else:
+                shadow = 'DP'
             self.vanilla_model = vanilla_GCN_node(ss,
-                                              data=self.data,
-                                              shadow=shadow)
+                                            data=self.data,
+                                            shadow=shadow)
             best_score = self.vanilla_model.train_dp() 
             private_paras = self.vanilla_model.private_paras
             self.shadow_res['epsilon'].append(f'{private_paras[0]:.4f}')

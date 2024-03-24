@@ -412,3 +412,4 @@ def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int):
         subnodes = dfs_with_depth(i,adjacent,depth)
         subnodes = torch.Tensor(list(subnodes))
         subgraphs[i] = data.subgraph(subnodes)
+    return subgraphs

@@ -6,7 +6,8 @@ import math
 import sys
 import functools
 from typing import Callable
-
+from scipy.special import comb
+from math import exp
 import dp_accounting
 import ml_collections
 import numpy as np
@@ -126,6 +127,11 @@ class GCN_DPSGD(SGD):
 
     def zero_sample_grad(self):
         super(GCN_DPSGD, self).zero_grad()
+    
+    def zero_accum_grad(self):
+        for group in self.param_groups:
+            for p in group['params']:
+                p.accumulated_grads = []
 
     def per_sample_step(self):
         for group in self.param_groups:
@@ -171,7 +177,7 @@ class GCN_DP_AC():
 
         self.batch_size = m
 
-    def get_privacy(self) -> tuple:
+    def get_privacy(self) -> float:
         return multiterm_dpsgd_privacy_accountant(num_training_steps=self.num_training_steps,
                                                   noise_multiplier=self.noise_multiplier,
                                                   target_delta=self.target_delta,
@@ -318,3 +324,126 @@ def get_training_privacy_accountant(config,
 
     raise ValueError(
         'Could not create privacy accountant for model: {config.model}.')
+
+
+
+class Mechanism:
+    def __init__(self, eps, input_range, **kwargs):
+        self.eps = eps
+        self.alpha, self.beta = input_range
+
+    def __call__(self, x):
+        raise NotImplementedError
+
+
+class MultiBit(Mechanism):
+    def __init__(self, *args, m='best', **kwargs):
+        super(MultiBit,self).__init__(*args, **kwargs)
+        self.m = m
+
+    def __call__(self, x):
+        n, d = x.size()
+        if self.m == 'best':
+            m = int(max(1, min(d, math.floor(self.eps / 2.18))))
+        elif self.m == 'max':
+            m = d
+        else:
+            m = self.m
+
+        # sample features for perturbation
+        BigS = torch.rand_like(x).topk(m, dim=1).indices
+        s = torch.zeros_like(x, dtype=torch.bool).scatter(1, BigS, True)
+        
+        del BigS
+
+        # perturb sampled features
+        em = math.exp(self.eps / m)
+        p = (x - self.alpha) / (self.beta - self.alpha)
+        p = (p * (em - 1) + 1) / (em + 1)
+        t = torch.bernoulli(p)
+        x_star = s * (2 * t - 1)
+        del p, t, s
+
+        # unbiase the result
+        x_prime = d * (self.beta - self.alpha) / (2 * m)
+        x_prime = x_prime * (em + 1) * x_star / (em - 1)
+        x_prime = x_prime + (self.alpha + self.beta) / 2
+        return x_prime
+
+class Duchi(Mechanism):
+    def __init__(self, *args, device, d, **kwargs):
+        super(Duchi,self).__init__(*args, **kwargs)
+        # self.odd = odd
+        self.eps
+        self.device = device
+        
+        if d % 2 != 0:
+            # d is odd
+            C_d = 2 ** (d - 1) / comb(d - 1, int((d - 1) / 2))
+        
+        else:
+            # otherwise
+            C_d = (comb(d, int(d / 2)) / comb(d - 1, int(d / 2))) * .5
+            C_d += (2 ** (d - 1)/comb(d - 1, int(d / 2))) 
+        
+        C_d = round(C_d,10)
+
+        B = ((exp(self.eps) + 1) / (exp(self.eps) - 1) * C_d)
+        self.B = round(B,10)
+
+    def __call__(self, x):
+        # (batch, x)
+        b,d = x.shape
+        tensor = [self.duchi_multi_dim_method(tp=x[i]) for i in range(b)]
+        return torch.concat(tensor,dim=0)
+        
+
+    def duchi_multi_dim_method(self,tp:torch.Tensor):
+        """
+        Duchi et al.’s Solution for Multidimensional Numeric Data
+
+        :param tp: tp is a d-dimensional tuple (t_i \in [-1, 1]^d)
+        :param epsilon: privacy budget param
+        """
+
+        v = torch.bernoulli(1 / 2 * tp + 1 / 2)
+        # v = [self.generate_binary_random(1 / 2 + 1 / 2 * tp[j], 1, -1) for j in range(d)]
+        # t_pos = []
+        # t_neg = []
+        # for t_star in itertools.product([-B, B], repeat=self.d):
+        #     t_star = torch.tensor(t_star,device=self.device,dtype=torch.float)
+        #     if (t_star@v).item() >= 0:
+        #         t_pos.append(t_star)
+        #         del t_star
+        #     else:
+        #         t_neg.append(t_star)
+        #         del t_star
+
+        prob = torch.tensor(exp(self.eps) / (exp(self.eps) + 1))
+        
+    
+        if torch.bernoulli(prob).item() == 1:
+            t_pos = self.get_tstar(pos=True,v=v)
+            return t_pos 
+        else:
+            t_neg = self.get_tstar(pos=False,v=v)
+            return t_neg
+        
+    def get_tstar(self,pos,v):
+        """
+        random get a tuple from [-b,b]^d until it satisfies the wanted signal
+        """
+        t_star = ((torch.bernoulli((torch.ones_like(v)-.5))-.5)*2*self.B).to(self.device)
+        
+        if pos:
+            
+            while (t_star@v).item() < 0:
+                del t_star
+                t_star = ((torch.bernoulli((torch.ones_like(v)-.5))-.5)*2*self.B).to(self.device)
+            return t_star.unsqueeze(0)
+        else:
+            
+            while (t_star@v).item() >= 0:
+                del t_star
+                t_star = ((torch.bernoulli((torch.ones_like(v)-.5))-.5)*2*self.B).to(self.device)
+            return t_star.unsqueeze(0)

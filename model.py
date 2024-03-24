@@ -266,6 +266,8 @@ class vanilla_GCN_node():
         self.num_edges = data.edge_index.shape[1]
 
         self.private = ss.args.private
+        self.rdp_k = ss.args.rdp_k
+        self.rdp_batchsize = ss.args.rdp_batchsize
         
         self.split_n_subgraphs = ss.args.split_n_subgraphs  
         self.total_samples = self.split_n_subgraphs
@@ -324,6 +326,15 @@ class vanilla_GCN_node():
         self.trainable_params = trainable_params
         print("Trainable parameters", self.trainable_params)
 
+        if self.learning_rate_decay:
+            self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1,
+                                                             gamma=self.scheduler_gamma)
+
+        self.loss = torch.nn.CrossEntropyLoss()
+
+        self.model = model
+
+    def train_dp(self):
         if self.private and self.shadow == 'DP':
             if self.optim_type == 'sgd':
                 self.optimizer = DPSGD(model.parameters(), 
@@ -340,40 +351,8 @@ class vanilla_GCN_node():
                                         self.sample_size,
                                         lr=self.learning_rate)
         else:
-            if self.shadow == 'shadow':
-                if self.optim_type == 'sgd':
-                    self.optimizer = torch.optim.SGD(model.parameters(),
-                                                        lr=self.shadow_learning_rate,
-                                                        weight_decay=self.weight_decay)
-
-                elif self.optim_type == 'adam':
-                    self.optimizer = torch.optim.Adam(model.parameters(),
-                                                        lr=self.shadow_learning_rate,
-                                                        weight_decay=self.weight_decay)
-                else:
-                    raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
-            else:
-                if self.optim_type == 'sgd':
-                    self.optimizer = torch.optim.SGD(model.parameters(),
-                                                        lr=self.learning_rate,
-                                                        weight_decay=self.weight_decay)
-
-                elif self.optim_type == 'adam':
-                    self.optimizer = torch.optim.Adam(model.parameters(),
-                                                        lr=self.learning_rate,
-                                                        weight_decay=self.weight_decay)
-                else:
-                    raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
-
-        if self.learning_rate_decay:
-            self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1,
-                                                             gamma=self.scheduler_gamma)
-
-        self.loss = torch.nn.CrossEntropyLoss()
-
-        self.model = model
-
-    def train_dp(self):
+            raise(TypeError,"dp train not properly used, check your setting.")
+        
         model = self.model
         optimizer = self.optimizer
         early_stopping = EarlyStopping(self.patience)
@@ -476,7 +455,91 @@ class vanilla_GCN_node():
         else:
             return val_loss     
 
+    def train_rdp(self):
+        if self.private and self.shadow == 'RDP':
+            if self.optim_type == 'sgd':
+                self.optimizer = GCN_DPSGD(model.parameters(), 
+                                            self.noise_scale,
+                                            self.gradient_norm_bound, 
+                                            self.rdp_batchsize,
+                                            self.sample_size, 
+                                            lr=self.learning_rate)
+            elif self.optim_type == 'adam':
+                self.optimizer = DPAdam(model.parameters(), 
+                                        self.noise_scale,
+                                        self.gradient_norm_bound,
+                                        self.lot_size, 
+                                        self.sample_size,
+                                        lr=self.learning_rate)
+        else:
+            raise(TypeError,"rdp train not properly used, check your setting.")
+        
+        model = self.model
+        optimizer = self.optimizer
+        early_stopping = EarlyStopping(self.patience)
+
+        model.train()
+        print('Training...\n')
+        train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
+        val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
+        private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
+        parameters = []
+        q = self.lot_size / self.total_samples
+            # 'Sampling ratio'
+            # Number of subgraphs in a lot divided by total number of subgraphs
+            # If no graph splitting, both values are 1
+        max_range = self.epochs / q  # max number of Ts
+        max_parameters = [(q, self.noise_scale, max_range)]
+
+        k = self.rdp_k
+        depth = self.k_layers
+        sampled_dict = sample_subgraph_with_occurance_constr(data=self.data[self.data.train_mask],
+                                                            k=k,
+                                                            depth=depth)
+        train_nodes = list(sampled_dict.keys())
+        batch_idx = range(len(train_nodes))
+        
+        for epoch,_,_ in zip(train_bar,val_bar,private_bar):
+            random.shuffle(batch_idx)
+            batch_idx = batch_idx[:self.rdp_batchsize]
+            optimizer.zero_accum_grad()
+            for node_idx in batch_idx:
+                sample = sampled_dict[node_idx]
+                optimizer.zero_sample_grad()
+                pred_prob_node = model(sample)
+                loss = self.loss(pred_prob_node,sample.y)
+                loss.backward()
+                optimizer.per_sample_step()    
+            optimizer.step()
+            pass
+            
+
     def train_vanilla(self):
+        if self.shadow == 'shadow':
+            if self.optim_type == 'sgd':
+                self.optimizer = torch.optim.SGD(model.parameters(),
+                                                    lr=self.shadow_learning_rate,
+                                                    weight_decay=self.weight_decay)
+
+            elif self.optim_type == 'adam':
+                self.optimizer = torch.optim.Adam(model.parameters(),
+                                                    lr=self.shadow_learning_rate,
+                                                    weight_decay=self.weight_decay)
+            else:
+                raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+        else:
+            if self.optim_type == 'sgd':
+                self.optimizer = torch.optim.SGD(model.parameters(),
+                                                    lr=self.learning_rate,
+                                                    weight_decay=self.weight_decay)
+
+            elif self.optim_type == 'adam':
+                self.optimizer = torch.optim.Adam(model.parameters(),
+                                                    lr=self.learning_rate,
+                                                    weight_decay=self.weight_decay)
+            else:
+                raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+    
         model = self.model
         optimizer = self.optimizer
         early_stopping = EarlyStopping(self.patience)
