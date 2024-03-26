@@ -72,7 +72,7 @@ def parse_arguments():
                            help='occurance constrain k')
 
     args = argparser.parse_args()
-
+    print(args)
     return args
 
 

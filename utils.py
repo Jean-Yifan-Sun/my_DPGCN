@@ -361,23 +361,23 @@ def get_neighbors(edge_index,node_idx):
     """
     给出给定节点为起点的所有邻居节点的idx
     """
-    subset, edge_index, mapping, edge_mask = k_hop_subgraph(node_idx=node_idx,
+    subset, new_edge_index, mapping, edge_mask = k_hop_subgraph(node_idx=node_idx,
                                                             edge_index=edge_index,
                                                             num_hops=1)
-    subset = subset.tolist()
-    subset.remove(node_idx)
+    
     
     if len(subset) == 0:
-        return False
-    return torch.Tensor(subset)
+        return False,False
+    return subset,True
     
-def sample_neighbors_with_p(neighbors,p):
+def sample_neighbors_with_p(neighbors:torch.Tensor,p:float):
     """
     用p为概率对neighbors里的节点进行抽样
     """
-    p_tensor = torch.ones_like(neighbors) * p
+    p_tensor = torch.ones_like(neighbors,dtype=torch.float) * p
     mask = torch.bernoulli(p_tensor).bool()
-    return neighbors[mask]
+    res = neighbors[mask]
+    return res.tolist()
 
 def dfs_with_depth(node,neighbors_dict,depth):
     """
@@ -388,12 +388,12 @@ def dfs_with_depth(node,neighbors_dict,depth):
     for i in range(depth):
         temp = []
         for j in all_nodes:
-            temp.extend(neighbors_dict[j])
+            temp.extend(neighbors_dict[int(j)])
         all_nodes = temp.copy()
         all_nodes_set.update(all_nodes)
     return all_nodes_set
 
-def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int):
+def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int,device:str):
     """
     实现完整的根据occurrence constraints进行采样步骤
     """
@@ -402,14 +402,17 @@ def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int):
     adjacent = {}
     for i in range(num_nodes):
         neighbors = get_neighbors(data.edge_index,i)
-        if neighbors:
+        if neighbors[-1]:
+            neighbors = neighbors[0]
             p = k / len(neighbors)
+            if p > 1:
+                p = 1
             sampled_neighbors = sample_neighbors_with_p(neighbors,p)
             adjacent[i] = sampled_neighbors
 
     subgraphs = {}
     for i in list(adjacent.keys()):
         subnodes = dfs_with_depth(i,adjacent,depth)
-        subnodes = torch.Tensor(list(subnodes))
+        subnodes = torch.tensor(list(subnodes),dtype=torch.int,device=device)
         subgraphs[i] = data.subgraph(subnodes)
     return subgraphs

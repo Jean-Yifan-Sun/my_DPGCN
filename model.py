@@ -335,6 +335,7 @@ class vanilla_GCN_node():
         self.model = model
 
     def train_dp(self):
+        model = self.model
         if self.private and self.shadow == 'DP':
             if self.optim_type == 'sgd':
                 self.optimizer = DPSGD(model.parameters(), 
@@ -351,9 +352,9 @@ class vanilla_GCN_node():
                                         self.sample_size,
                                         lr=self.learning_rate)
         else:
-            raise(TypeError,"dp train not properly used, check your setting.")
+            raise TypeError("dp train not properly used, check your setting.")
         
-        model = self.model
+        
         optimizer = self.optimizer
         early_stopping = EarlyStopping(self.patience)
 
@@ -456,6 +457,7 @@ class vanilla_GCN_node():
             return val_loss     
 
     def train_rdp(self):
+        model = self.model
         if self.private and self.shadow == 'RDP':
             if self.optim_type == 'sgd':
                 self.optimizer = GCN_DPSGD(model.parameters(), 
@@ -474,7 +476,7 @@ class vanilla_GCN_node():
         else:
             raise(TypeError,"rdp train not properly used, check your setting.")
         
-        model = self.model
+        
         optimizer = self.optimizer
         early_stopping = EarlyStopping(self.patience)
 
@@ -493,15 +495,26 @@ class vanilla_GCN_node():
 
         k = self.rdp_k
         depth = self.k_layers
-        sampled_dict = sample_subgraph_with_occurance_constr(data=self.data[self.data.train_mask],
+
+        train_data = self.data.subgraph(self.data.train_mask)
+        sampled_dict = sample_subgraph_with_occurance_constr(data=train_data,
                                                             k=k,
-                                                            depth=depth)
+                                                            depth=depth,
+                                                            device=self.device)
         train_nodes = list(sampled_dict.keys())
-        batch_idx = range(len(train_nodes))
-        
+        batch_idx = list(range(len(train_nodes)))
+        rdp_batchsize = int(self.rdp_batchsize * len(train_nodes))
+        accountant = GCN_DP_AC(noise_scale=self.noise_scale,
+                               K=k,
+                               Ntr=len(train_nodes),
+                               m=rdp_batchsize,
+                               r=depth,
+                               C=self.gradient_norm_bound,
+                               delta=self.delta)
+        maxeps = accountant.get_privacy(epochs=self.epochs)
         for epoch,_,_ in zip(train_bar,val_bar,private_bar):
             random.shuffle(batch_idx)
-            batch_idx = batch_idx[:self.rdp_batchsize]
+            batch_idx = batch_idx[:rdp_batchsize]
             optimizer.zero_accum_grad()
             for node_idx in batch_idx:
                 sample = sampled_dict[node_idx]
@@ -510,11 +523,46 @@ class vanilla_GCN_node():
                 loss = self.loss(pred_prob_node,sample.y)
                 loss.backward()
                 optimizer.per_sample_step()    
-            optimizer.step()
-            pass
+            optimizer.step(self.device)
+           
+            eps = accountant.get_privacy(epoch+1)
+            delta = accountant.target_delta
+            self.private_paras = [eps, delta]
+            private_bar.set_description(f"Spent privacy eps:{eps:.4f} / max eps:{maxeps:.4f}")
+            
+            pred_prob_node = model(self.data)
+            train_loss = self.loss(pred_prob_node[self.data.train_mask],
+                                    self.data.y[self.data.train_mask]).item()
+            
+            train_acc, prec, rec, train_f1 = self.calculate_accuracy(
+                    pred_prob_node[self.data.train_mask],
+                    self.data.y[self.data.train_mask])
+            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+                print("Old LR:", self.optimizer.param_groups[0]['lr'])
+                self.scheduler.step()
+                print("New LR:", self.optimizer.param_groups[0]['lr'])
+                
+            self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
+            self.train_losses.append(train_loss)
+            self.train_accs.append(train_acc)
+            self.train_f1s.append(train_f1)
+            val_loss = self.evaluate_on_valid(model, epoch, val_bar)
+            
+            self.plot_learning_curve()
+            
+            if self.early_stopping:
+                early_stopping(val_loss)
+                if early_stopping.early_stop:
+                    break
+        if self.early_stopping:
+            return -early_stopping.best_score
+        else:
+            return val_loss
+        
             
 
     def train_vanilla(self):
+        model = self.model
         if self.shadow == 'shadow':
             if self.optim_type == 'sgd':
                 self.optimizer = torch.optim.SGD(model.parameters(),
@@ -540,7 +588,7 @@ class vanilla_GCN_node():
             else:
                 raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
     
-        model = self.model
+        
         optimizer = self.optimizer
         early_stopping = EarlyStopping(self.patience)
 

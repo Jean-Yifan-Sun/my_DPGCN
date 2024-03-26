@@ -156,7 +156,7 @@ class GCN_DPSGD(SGD):
                 p.grad.data += torch.empty(p.grad.data.shape).normal_(mean=0.0, std=(self.noise_scale)).to(device)
                 
                 p.grad.data = p.grad.data / self.lot_size
-        super(DPSGD, self).step(*args, **kwargs)
+        super(GCN_DPSGD, self).step(*args, **kwargs)
 
 class GCN_DP_AC():
     """
@@ -164,9 +164,9 @@ class GCN_DP_AC():
 
     If the norms of the values are bounded ||v_i|| <= C, the noise_multiplier is defined as s / C.
     """
-    def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,epochs:int,delta:None) -> None:
+    def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,delta:None) -> None:
         self.max_terms_per_node = (K ^ (r - 1) - 1) / (K - 1)
-        self.num_training_steps = epochs
+        
         self.noise_multiplier = noise_scale / C
         self.num_samples = Ntr
         
@@ -177,7 +177,8 @@ class GCN_DP_AC():
 
         self.batch_size = m
 
-    def get_privacy(self) -> float:
+    def get_privacy(self,epochs:int) -> float:
+        self.num_training_steps = epochs
         return multiterm_dpsgd_privacy_accountant(num_training_steps=self.num_training_steps,
                                                   noise_multiplier=self.noise_multiplier,
                                                   target_delta=self.target_delta,
