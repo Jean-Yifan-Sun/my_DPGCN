@@ -511,12 +511,13 @@ class vanilla_GCN_node():
                                m=rdp_batchsize,
                                r=depth,
                                C=self.gradient_norm_bound,
-                               delta=self.delta)
+                               delta=None)
         maxeps = accountant.get_privacy(epochs=self.epochs)
         for epoch,_,_ in zip(train_bar,val_bar,private_bar):
             random.shuffle(batch_idx)
             batch_idx = batch_idx[:rdp_batchsize]
             optimizer.zero_accum_grad()
+            
             for node_idx in batch_idx:
                 sample = sampled_dict[node_idx]
                 optimizer.zero_sample_grad()

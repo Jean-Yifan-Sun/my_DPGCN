@@ -165,7 +165,8 @@ class GCN_DP_AC():
     If the norms of the values are bounded ||v_i|| <= C, the noise_multiplier is defined as s / C.
     """
     def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,delta:None) -> None:
-        self.max_terms_per_node = (K ^ (r + 1) - 1) / (K - 1)
+        
+        self.max_terms_per_node = (math.pow(K,r+1) - 1) / (K - 1)
         
         self.noise_multiplier = noise_scale / C
         self.num_samples = Ntr
