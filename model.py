@@ -501,12 +501,13 @@ class vanilla_GCN_node():
                                                             k=k,
                                                             depth=depth,
                                                             device=self.device)
-        train_nodes = list(sampled_dict.keys())
-        batch_idx = list(range(len(train_nodes)))
-        rdp_batchsize = int(self.rdp_batchsize * len(train_nodes))
+        batch_idx = list(sampled_dict.keys())
+        train_nodes = len(batch_idx)
+        rdp_batchsize = int(self.rdp_batchsize * train_nodes)
+        # print(rdp_batchsize,train_nodes)
         accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                K=k,
-                               Ntr=len(train_nodes),
+                               Ntr=train_nodes,
                                m=rdp_batchsize,
                                r=depth,
                                C=self.gradient_norm_bound,
