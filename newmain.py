@@ -242,8 +242,8 @@ class node_GCN():
             data = get_dataset(cls="Twitch",name=dataset)
         else:
             raise Exception("Incorrect dataset specified.")
-        data = node_split(data[0],num_val=num_val,num_test=num_test)
-        vanilla,shadow = subsample_graph_both_pyg(data=data,rate=mia_subsample_rate)
+        # data = node_split(data[0],num_val=num_val,num_test=num_test)
+        vanilla,shadow = subsample_graph_both_pyg(data=data[0],rate=mia_subsample_rate)
         # vanilla,shadow = subsample_mask_graph_full(data,mia_subsample_rate)
         print(f"\nGet dataset {dataset}\n")
         if shadow_set:

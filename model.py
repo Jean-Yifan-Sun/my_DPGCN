@@ -467,12 +467,12 @@ class vanilla_GCN_node():
                                             self.sample_size, 
                                             lr=self.learning_rate)
             elif self.optim_type == 'adam':
-                self.optimizer = DPAdam(model.parameters(), 
-                                        self.noise_scale,
-                                        self.gradient_norm_bound,
-                                        self.lot_size, 
-                                        self.sample_size,
-                                        lr=self.learning_rate)
+                self.optimizer = GCN_DPAdam(model.parameters(), 
+                                            self.noise_scale,
+                                            self.gradient_norm_bound,
+                                            self.lot_size, 
+                                            self.sample_size,
+                                            lr=self.learning_rate)
         else:
             raise(TypeError,"rdp train not properly used, check your setting.")
         

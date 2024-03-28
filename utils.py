@@ -397,11 +397,15 @@ def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int,device:str):
     """
     实现完整的根据occurrence constraints进行采样步骤
     """
+    torch.cuda.empty_cache()
     assert data.is_undirected()
+    data = data.cpu()
+    edge_index = data.edge_index.clone()
     num_nodes = data.x.shape[0]
     adjacent = {}
     for i in range(num_nodes):
-        neighbors = get_neighbors(data.edge_index,i)
+        # idx = torch.tensor(i,dtype=torch.int,device='cpu')
+        neighbors = get_neighbors(edge_index,i)
         if neighbors[-1]:
             neighbors = neighbors[0]
             p = k / len(neighbors)
@@ -413,6 +417,6 @@ def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int,device:str):
     subgraphs = {}
     for i in list(adjacent.keys()):
         subnodes = dfs_with_depth(i,adjacent,depth)
-        subnodes = torch.tensor(list(subnodes),dtype=torch.int,device=device)
-        subgraphs[i] = data.subgraph(subnodes)
+        subnodes = torch.tensor(list(subnodes),dtype=torch.int,device='cpu')
+        subgraphs[i] = data.subgraph(subnodes).to(device)
     return subgraphs
