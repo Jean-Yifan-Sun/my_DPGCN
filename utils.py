@@ -5,6 +5,7 @@ from sklearn import metrics
 import torch_geometric
 from torch_geometric.utils import *
 from torch_geometric.data import Data
+from torch_geometric.utils.num_nodes import maybe_num_nodes
 
 '''
 Early stopping for the main network.
@@ -357,12 +358,14 @@ def matain_same_split_dist(data1,data2):
         new_mask[i] = True
     data2.val_mask = new_mask    
 
-def get_neighbors(edge_index,node_idx):
+def get_neighbors(edge_index,node_idx,num_nodes):
     """
     给出给定节点为起点的所有邻居节点的idx
     """
+    # num_nodes = maybe_num_nodes(edge_index)
     subset, new_edge_index, mapping, edge_mask = k_hop_subgraph(node_idx=node_idx,
                                                             edge_index=edge_index,
+                                                            num_nodes=num_nodes,
                                                             num_hops=1)
     
     
@@ -400,12 +403,13 @@ def sample_subgraph_with_occurance_constr(data:Data,k:int,depth:int,device:str):
     torch.cuda.empty_cache()
     assert data.is_undirected()
     data = data.cpu()
+    num_nodes = data.num_nodes
     edge_index = data.edge_index.clone()
     num_nodes = data.x.shape[0]
     adjacent = {}
     for i in range(num_nodes):
         # idx = torch.tensor(i,dtype=torch.int,device='cpu')
-        neighbors = get_neighbors(edge_index,i)
+        neighbors = get_neighbors(edge_index,i,num_nodes)
         if neighbors[-1]:
             neighbors = neighbors[0]
             p = k / len(neighbors)
