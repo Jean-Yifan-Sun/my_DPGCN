@@ -1,6 +1,9 @@
 from torch_geometric import datasets,data
-import torch,random,os
+import torch,random,os,torch_sparse
 from torch_geometric import transforms as T
+from torch_geometric.sampler import *
+from torch_geometric.loader import *
+from utils import *
 
 current_path = os.path.dirname(__file__)
 parent_directory = os.path.abspath(os.path.join(current_path, os.pardir))
@@ -157,6 +160,67 @@ def node_split(data,num_val=100,num_test=100):
     """
     transform = T.RandomNodeSplit(split="train_rest",num_val=num_val,num_test=num_test)
     return transform(data)
+
+def ClusterSampler(data:data,num_parts:int,batch_size:int):
+    cluster = ClusterData(data=data.cpu(),
+                          num_parts=num_parts)
+    loader = ClusterLoader(cluster_data=cluster,
+                           batch_size=batch_size,
+                           shuffle=True)
+    return loader
+
+def SaintSampler(data:data,type:str,batch_size:int,num_steps:int,sample_coverage:int,walk_length:int):
+    assert type in ['saint_rw','saint_node']
+    if type == 'saint_node':
+        loader = GraphSAINTNodeSampler(data=data.cpu(),
+                                       batch_size=batch_size,
+                                       num_steps=num_steps,
+                                       sample_coverage=sample_coverage,
+                                       shuffle=True)
+    elif type == 'saint_rw':
+        loader = GraphSAINTRandomWalkSampler(data=data.cpu(),
+                                             batch_size=batch_size,
+                                             walk_length=walk_length,
+                                             num_steps=num_steps,
+                                             sample_coverage=sample_coverage,
+                                             shuffle=True)
+    return loader
+
+def ShadowKSampler(data:data,depth:int,num_neighbors:int,node_idx:torch.Tensor,batch_size:int,replace:bool):
+    loader = ShaDowKHopSampler(data=data.cpu(),
+                               depth=depth,
+                               num_neighbors=num_neighbors,
+                               node_idx=node_idx,
+                               replace=replace,
+                               batch_size=batch_size,
+                               shuffle=True)
+    return loader
+
+def NeighborReplaceSampler(data:data,batch_size:int):
+    loader = NeighborLoader(data=data,
+                            num_neighbors=[-1,-1],
+                            input_nodes=None,
+                            replace=False,
+                            subgraph_type='induced',
+                            disjoint=False,
+                            batch_size=batch_size,
+                            shuffle=True)
+    return loader
+
+def OccuranceSampler(data:data,k:int,depth:int,device:str,sampler_batchsize:float):
+    sampled_dict = sample_subgraph_with_occurance_constr(data=data,
+                                                            k=k,
+                                                            depth=depth,
+                                                            device=device)
+    
+    batch_idx = list(sampled_dict.keys())
+    train_nodes = len(batch_idx)
+    if sampler_batchsize<1:    
+        sampler_batchsize = int(sampler_batchsize * train_nodes)
+    datalist = list(sampled_dict.values())
+    return sampled_dict
+    # return DataLoader(datalist,batch_size=sampler_batchsize,shuffle=True,drop_last=True)
+
 
 if __name__ == "__main__":
     dataset_dic_demo = {"GNNBenchmark":["PATTERN", "CLUSTER", "MNIST", "CIFAR10", "TSP", "CSL"],

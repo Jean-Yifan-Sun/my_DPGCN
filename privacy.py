@@ -71,7 +71,7 @@ class DPAdam(Adam):
         self.noise_scale = noise_scale
         self.gradient_norm_bound = gradient_norm_bound
         self.lot_size = lot_size
-        self.sample_size = sample_size
+        # self.sample_size = sample_size
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:
@@ -110,14 +110,13 @@ class DPAdam(Adam):
 
 class GCN_DPAdam(Adam):
 
-    def __init__(self, params, noise_scale, gradient_norm_bound, lot_size,
-                 sample_size, lr=0.01):
+    def __init__(self, params, noise_scale, gradient_norm_bound, lot_size, lr=0.01):
         super(GCN_DPAdam, self).__init__(params, lr=lr)
 
         self.noise_scale = noise_scale
         self.gradient_norm_bound = gradient_norm_bound
         self.lot_size = lot_size
-        self.sample_size = sample_size
+        # self.sample_size = sample_size
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:
@@ -159,13 +158,12 @@ class GCN_DPSGD(SGD):
     """
     实现GCN使用DP优化器迭代
     """
-    def __init__(self, params, noise_scale, gradient_norm_bound, lot_size,
-                 sample_size, lr=0.01):
+    def __init__(self, params, noise_scale, gradient_norm_bound, lot_size, lr=0.01):
         super(GCN_DPSGD, self).__init__(params, lr=lr)
         self.noise_scale = noise_scale
         self.gradient_norm_bound = gradient_norm_bound
         self.lot_size = lot_size
-        self.sample_size = sample_size
+        # self.sample_size = sample_size
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:
@@ -211,10 +209,11 @@ class GCN_DP_AC():
 
     If the norms of the values are bounded ||v_i|| <= C, the noise_multiplier is defined as s / C.
     """
-    def __init__(self,noise_scale:float,K:int,Ntr:int,m:int,r:int,C:float,delta:None) -> None:
-        
-        self.max_terms_per_node = (math.pow(K,r+1) - 1) / (K - 1)
-        
+    def __init__(self,noise_scale:float,Ntr:int,m:int,C:float,r=None,delta=None,K=None,max_terms_per_node=None) -> None:
+        if not max_terms_per_node:
+            self.max_terms_per_node = (math.pow(K,r+1) - 1) / (K - 1)
+        else:
+            self.max_terms_per_node = max_terms_per_node
         self.noise_multiplier = noise_scale / C
         self.num_samples = Ntr
         

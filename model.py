@@ -7,11 +7,12 @@ from sklearn.neural_network import MLPClassifier
 from sklearn import metrics
 from sklearn.svm import SVC
 from sklearn import metrics
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv,global_mean_pool
 import torch.nn.functional as F
 from utils import *
 from accountant import *
 from privacy import *
+from dataset import *
 from matplotlib import pyplot as plt
 from torch_geometric.utils import one_hot
 from tqdm import tqdm,trange 
@@ -51,6 +52,24 @@ class two_layer_GCN(torch.nn.Module):
         x = self.conv2(x,edge_index)
         return x
 
+class shadowk_two_layer_GCN(two_layer_GCN):
+    def __init__(self,  *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self.lin = torch.nn.Linear(2 * self.hidden_channels, self.num_classes)
+
+    def forward(self,data):
+        batch = data.batch
+        root_n_id = data.root_n_id
+        x = data.x.float()
+        edge_index = data.edge_index
+        x = self.conv1(x,edge_index)
+        x = self.activation(x)
+        x = F.dropout(x, p=self.dropout,training=self.training)
+        x = self.conv2(x,edge_index)
+
+        # x = torch.cat([x[root_n_id], global_mean_pool(x, batch)], dim=-1)
+        # x = self.lin(x)
+        return x
 class three_layer_GCN(torch.nn.Module):
     """
     basic 3 layer GCN module
@@ -266,11 +285,23 @@ class vanilla_GCN_node():
         self.num_edges = data.edge_index.shape[1]
 
         self.private = ss.args.private
-        self.rdp_k = ss.args.rdp_k
-        self.rdp_batchsize = ss.args.rdp_batchsize
-        
+
+        self.sampler_type = ss.args.sampler
+        self.occurance_k = ss.args.occurance_k
+        self.sampler_batchsize = ss.args.sampler_batchsize
+        self.train_data = self.data.subgraph(self.data.train_mask)
+        self.train_nodes = self.train_data.x.shape[0]
+        if self.sampler_batchsize<1: 
+            self.sampler_batchsize = int(self.train_nodes * self.sampler_batchsize)
+        self.cluster_numparts = ss.args.cluster_numparts
+        self.saint_numsteps = ss.args.saint_numsteps
+        self.saint_samplecoverage = ss.args.saint_samplecoverage
+        self.saint_walklenth = ss.args.saint_walklenth
+        self.shadowk_depth = ss.args.shadowk_depth
+        self.shadowk_neighbors = ss.args.shadowk_neighbors
+        self.shadowk_replace = ss.args.shadowk_replace
+
         self.split_n_subgraphs = ss.args.split_n_subgraphs  
-        self.total_samples = self.split_n_subgraphs
         
         self.split = False if self.split_n_subgraphs == 1 else True
         if self.split and self.shadow == 'DP':
@@ -283,7 +314,7 @@ class vanilla_GCN_node():
         self.noise_scale = ss.args.noise_scale
         self.gradient_norm_bound = ss.args.gradient_norm_bound
         self.lot_size = ss.args.lot_size
-        self.sample_size = ss.args.sample_size
+        self.dp_subgraph_sample_size = ss.args.dp_subgraph_sample_size
         self.delta = ss.args.delta
         self._init_model()
 
@@ -305,6 +336,8 @@ class vanilla_GCN_node():
         
         if self.k_layers == 2:
             model = two_layer_GCN(ss_dict).to(self.device)
+            if self.sampler_type == 'shadow_k' and self.shadow == 'RDP':
+                model = shadowk_two_layer_GCN(ss_dict).to(self.device)
         elif self.k_layers == 3:
             model = three_layer_GCN(ss_dict).to(self.device)
         else:
@@ -334,6 +367,62 @@ class vanilla_GCN_node():
 
         self.model = model
 
+    def rdp_getloader_AC(self):
+        assert self.private and self.shadow == 'RDP'
+        assert self.sampler_type in ['occurance', 'saint_node', 'saint_rw', 'shadow_k', 'cluster','neighbor']
+
+        if self.sampler_type == 'occurance':
+            loader = OccuranceSampler(data=self.train_data,
+                                      k=self.occurance_k,
+                                      depth=self.k_layers,
+                                      device=self.device,
+                                      sampler_batchsize=self.sampler_batchsize)
+            train_nodes = len(loader.keys())
+            # if self.sampler_batchsize<1:    
+            #     sampler_batchsize = int(self.sampler_batchsize * train_nodes)
+            accountant = GCN_DP_AC(noise_scale=self.noise_scale,
+                               K=self.occurance_k,
+                               Ntr=train_nodes,
+                               m=self.sampler_batchsize,
+                               r=self.k_layers,
+                               C=self.gradient_norm_bound,
+                               delta=None)
+        
+        elif self.sampler_type in ['saint_node','saint_rw']:
+            loader = SaintSampler(data=self.train_data,
+                                    type=self.sampler_type,
+                                    batch_size=self.sampler_batchsize,
+                                    num_steps=self.saint_numsteps,
+                                    sample_coverage=self.saint_samplecoverage,
+                                    walk_length=self.saint_walklenth)
+            accountant = GCN_DP_AC(noise_scale=self.noise_scale,
+                                    Ntr=self.train_nodes,
+                                    m=self.sampler_batchsize,
+                                    max_terms_per_node=self.saint_numsteps,#因为saint多少个step就是在一个epoch里采样几次，有放回的话，就代表有可能出现几次
+                                    C=self.gradient_norm_bound,
+                                    delta=None)
+        elif self.sampler_type == 'cluster':
+            sampler_batchsize = int(self.cluster_numparts * self.sampler_batchsize / self.train_nodes)
+            loader = ClusterSampler(data=self.train_data,
+                                    num_parts=self.cluster_numparts,
+                                    batch_size=sampler_batchsize)
+            accountant = GCN_DP_AC(noise_scale=self.noise_scale,
+                                    Ntr=self.train_nodes,
+                                    m=sampler_batchsize,
+                                    max_terms_per_node=1,
+                                    C=self.gradient_norm_bound,
+                                    delta=None)
+        elif self.sampler_type == 'neighbor':
+            loader = NeighborReplaceSampler(data=self.train_data,
+                                    batch_size=self.sampler_batchsize)
+            accountant = GCN_DP_AC(noise_scale=self.noise_scale,
+                                    Ntr=self.train_nodes,
+                                    m=self.sampler_batchsize,
+                                    max_terms_per_node=1,
+                                    C=self.gradient_norm_bound,
+                                    delta=None)
+        return loader,accountant
+
     def train_dp(self):
         model = self.model
         if self.private and self.shadow == 'DP':
@@ -342,14 +431,14 @@ class vanilla_GCN_node():
                                        self.noise_scale,
                                        self.gradient_norm_bound, 
                                        self.lot_size,
-                                       self.sample_size, 
+                                       self.dp_subgraph_sample_size, 
                                        lr=self.learning_rate)
             elif self.optim_type == 'adam':
                 self.optimizer = DPAdam(model.parameters(), 
                                         self.noise_scale,
                                         self.gradient_norm_bound,
                                         self.lot_size, 
-                                        self.sample_size,
+                                        self.dp_subgraph_sample_size,
                                         lr=self.learning_rate)
         else:
             raise TypeError("dp train not properly used, check your setting.")
@@ -364,7 +453,7 @@ class vanilla_GCN_node():
         val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
         private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
         parameters = []
-        q = self.lot_size / self.total_samples
+        q = self.lot_size / self.split_n_subgraphs
             # 'Sampling ratio'
             # Number of subgraphs in a lot divided by total number of subgraphs
             # If no graph splitting, both values are 1
@@ -456,22 +545,21 @@ class vanilla_GCN_node():
         else:
             return val_loss     
 
-    def train_rdp(self):
+    def train_rdp_with_occurance(self):
+        assert self.sampler_type == 'occurance'
         model = self.model
         if self.private and self.shadow == 'RDP':
             if self.optim_type == 'sgd':
                 self.optimizer = GCN_DPSGD(model.parameters(), 
                                             self.noise_scale,
                                             self.gradient_norm_bound, 
-                                            self.rdp_batchsize,
-                                            self.sample_size, 
+                                            self.lot_size, 
                                             lr=self.learning_rate)
             elif self.optim_type == 'adam':
                 self.optimizer = GCN_DPAdam(model.parameters(), 
                                             self.noise_scale,
                                             self.gradient_norm_bound,
                                             self.lot_size, 
-                                            self.sample_size,
                                             lr=self.learning_rate)
         else:
             raise(TypeError,"rdp train not properly used, check your setting.")
@@ -485,41 +573,20 @@ class vanilla_GCN_node():
         train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
         val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
         private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
-        parameters = []
-        q = self.lot_size / self.total_samples
-            # 'Sampling ratio'
-            # Number of subgraphs in a lot divided by total number of subgraphs
-            # If no graph splitting, both values are 1
-        max_range = self.epochs / q  # max number of Ts
-        max_parameters = [(q, self.noise_scale, max_range)]
 
-        k = self.rdp_k
-        depth = self.k_layers
-
-        train_data = self.data.subgraph(self.data.train_mask)
-        sampled_dict = sample_subgraph_with_occurance_constr(data=train_data,
-                                                            k=k,
-                                                            depth=depth,
-                                                            device=self.device)
-        batch_idx = list(sampled_dict.keys())
-        train_nodes = len(batch_idx)
-        rdp_batchsize = int(self.rdp_batchsize * train_nodes)
-        # print(rdp_batchsize,train_nodes)
-        accountant = GCN_DP_AC(noise_scale=self.noise_scale,
-                               K=k,
-                               Ntr=train_nodes,
-                               m=rdp_batchsize,
-                               r=depth,
-                               C=self.gradient_norm_bound,
-                               delta=None)
+        sampled_dcit,accountant = self.rdp_getloader_AC()
+        train_nodes = len(sampled_dcit.keys())
+        batch_idx = list(sampled_dcit.keys())
+        
         maxeps = accountant.get_privacy(epochs=self.epochs)
+
         for epoch,_,_ in zip(train_bar,val_bar,private_bar):
             random.shuffle(batch_idx)
-            batch_idx = batch_idx[:rdp_batchsize]
+            batch_idx = batch_idx[:self.sampler_batchsize]
             optimizer.zero_accum_grad()
             
             for node_idx in batch_idx:
-                sample = sampled_dict[node_idx]
+                sample = sampled_dcit[node_idx]
                 optimizer.zero_sample_grad()
                 pred_prob_node = model(sample)
                 loss = self.loss(pred_prob_node,sample.y)
@@ -561,7 +628,85 @@ class vanilla_GCN_node():
         else:
             return val_loss
         
+    def train_rdp_with_sampler(self):
+        assert self.sampler_type in ['saint_node', 'saint_rw', 'neighbor', 'cluster']
+        model = self.model
+        if self.private and self.shadow == 'RDP':
+            if self.optim_type == 'sgd':
+                self.optimizer = GCN_DPSGD(model.parameters(), 
+                                            self.noise_scale,
+                                            self.gradient_norm_bound, 
+                                            self.sampler_batchsize, 
+                                            lr=self.learning_rate)
+            elif self.optim_type == 'adam':
+                self.optimizer = GCN_DPAdam(model.parameters(), 
+                                            self.noise_scale,
+                                            self.gradient_norm_bound,
+                                            self.sampler_batchsize, 
+                                            lr=self.learning_rate)
+        else:
+            raise(TypeError,"rdp train not properly used, check your setting.")
+        
+        
+        optimizer = self.optimizer
+        early_stopping = EarlyStopping(self.patience)
+
+        model.train()
+        print('Training...\n')
+        train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
+        val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
+        private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
+       
+        loader, accountant = self.rdp_getloader_AC()
+
+        maxeps = accountant.get_privacy(epochs=self.epochs)
+        for epoch,_,_ in zip(train_bar,val_bar,private_bar):
             
+            optimizer.zero_accum_grad()
+            
+            for data in loader:
+                data = data.to(self.device)
+                optimizer.zero_sample_grad()
+                pred_prob_node = model(data)
+                # print(pred_prob_node.shape,data.y.shape)
+                loss = self.loss(pred_prob_node,data.y)
+                loss.backward()
+                optimizer.per_sample_step()    
+                optimizer.step(self.device)
+           
+            eps = accountant.get_privacy(epoch+1)
+            delta = accountant.target_delta
+            self.private_paras = [eps, delta]
+            private_bar.set_description(f"Spent privacy eps:{eps:.4f} / max eps:{maxeps:.4f}")
+            
+            pred_prob_node = model(self.data)
+            train_loss = self.loss(pred_prob_node[self.data.train_mask],
+                                    self.data.y[self.data.train_mask]).item()
+            
+            train_acc, prec, rec, train_f1 = self.calculate_accuracy(
+                    pred_prob_node[self.data.train_mask],
+                    self.data.y[self.data.train_mask])
+            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+                print("Old LR:", self.optimizer.param_groups[0]['lr'])
+                self.scheduler.step()
+                print("New LR:", self.optimizer.param_groups[0]['lr'])
+                
+            self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
+            self.train_losses.append(train_loss)
+            self.train_accs.append(train_acc)
+            self.train_f1s.append(train_f1)
+            val_loss = self.evaluate_on_valid(model, epoch, val_bar)
+            
+            self.plot_learning_curve()
+            
+            if self.early_stopping:
+                early_stopping(val_loss)
+                if early_stopping.early_stop:
+                    break
+        if self.early_stopping:
+            return -early_stopping.best_score
+        else:
+            return val_loss
 
     def train_vanilla(self):
         model = self.model
@@ -641,6 +786,13 @@ class vanilla_GCN_node():
         else:
             return val_loss
 
+    def train_rdp(self):
+        assert self.sampler_type in ['occurance','saint_node', 'saint_rw', 'neighbor', 'cluster']
+        if self.sampler_type == 'occurance':
+            val_loss = self.train_rdp_with_occurance()
+        else:
+            val_loss = self.train_rdp_with_sampler()
+        return val_loss
 
     def calculate_accuracy(self, pred, target, rand_maj_baseline=False):
 
