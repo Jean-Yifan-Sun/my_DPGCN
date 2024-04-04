@@ -414,7 +414,8 @@ class vanilla_GCN_node():
                                     delta=None)
         elif self.sampler_type == 'neighbor':
             loader = NeighborReplaceSampler(data=self.train_data,
-                                    batch_size=self.sampler_batchsize)
+                                    batch_size=self.sampler_batchsize,
+                                    layers=self.k_layers)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.train_nodes,
                                     m=self.sampler_batchsize,
@@ -540,6 +541,7 @@ class vanilla_GCN_node():
                 early_stopping(val_loss)
                 if early_stopping.early_stop:
                     break
+        self.last_epoch = epoch + 1
         if self.early_stopping:
             return -early_stopping.best_score
         else:
@@ -623,6 +625,7 @@ class vanilla_GCN_node():
                 early_stopping(val_loss)
                 if early_stopping.early_stop:
                     break
+        self.last_epoch = epoch + 1
         if self.early_stopping:
             return -early_stopping.best_score
         else:
@@ -703,7 +706,10 @@ class vanilla_GCN_node():
                 early_stopping(val_loss)
                 if early_stopping.early_stop:
                     break
+
+        self.last_epoch = epoch + 1
         if self.early_stopping:
+            
             return -early_stopping.best_score
         else:
             return val_loss
@@ -780,7 +786,7 @@ class vanilla_GCN_node():
                 early_stopping(val_loss)
                 if early_stopping.early_stop:
                     break
-
+        self.last_epoch = epoch + 1
         if self.early_stopping:
             return -early_stopping.best_score
         else:

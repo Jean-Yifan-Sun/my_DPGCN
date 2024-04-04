@@ -196,9 +196,9 @@ def ShadowKSampler(data:data,depth:int,num_neighbors:int,node_idx:torch.Tensor,b
                                shuffle=True)
     return loader
 
-def NeighborReplaceSampler(data:data,batch_size:int):
+def NeighborReplaceSampler(data:data,batch_size:int,layers:int):
     loader = NeighborLoader(data=data,
-                            num_neighbors=[-1,-1],
+                            num_neighbors=[-1]*layers,
                             input_nodes=None,
                             replace=False,
                             subgraph_type='induced',

@@ -36,22 +36,20 @@ class node_GCN():
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         self.shadow_res = {
+                "Dataset":[],
                 "Vanilla train acc":[],
                 "Vanilla train loss":[],
-                "Vanilla test acc":[],
-                "Vanilla test loss":[]}
-        
-        if ss.args.mia == 'shadow':
-            self.mia_shadow_mode = ss.args.mia_shadow_mode
-            self.shadow_res = {
-                "Vanilla train acc":[],
-                "Vanilla train loss":[],
+                "Vanilla train f1":[],
                 "Vanilla test acc":[],
                 "Vanilla test loss":[],
+                "Vanilla test f1":[],
                 "Shadow train acc":[],
                 "Shadow train loss":[],
+                "Shadow train f1":[],
                 "Shadow test acc":[],
                 "Shadow test loss":[],
+                "Shadow test f1":[],
+                "MIA subsample rate":[],
                 "MIA mlp":[],
                 "MIA svm":[],
                 "MIA ranfor":[],
@@ -59,18 +57,48 @@ class node_GCN():
                 "MIA ada":[],
                 "MIA confidence mse":[],
                 "MIA confidence thr":[],
-                "MIA seed":[]
-            }
-            if ss.args.private:
-                self.shadow_res['epsilon'] = []
-                self.shadow_res['delta'] = []
-
+                "MIA seed":[],
+                "Vanilla runtime per":[],
+                "Shadow runtime per":[],
+                "Epsilon":[],
+                "Delta":[],
+                "Dp":[],
+                "Rdp":[],
+                "Ldp":[],
+                "Sampler":[],
+                "Sampler batchsize":[],
+                "Occurance k":[],
+                "Cluster numparts":[],
+                "Saint numsteps":[],
+                "Saint samplecoverage":[],
+                "Saint walklenth":[],
+                "Epochs":[],
+                "Shadow epochs":[],
+                "Num val":[],
+                "Num test":[],
+                "Layers":[],
+                "Hidden dims":[],
+                "Learning rate":[],
+                "Shadow learning rate":[],
+                "Dropout":[],
+                "Activation":[],
+                "Early stopping":[],
+                "Patience":[],
+                "Optim type":[]}
+        
+        if ss.args.mia == 'shadow':
+            self.mia_shadow_mode = ss.args.mia_shadow_mode
+            
             for i in trange(10,desc='10 Shadow dataset',leave=True):
                 seed = self.seed+i*self.seed
+                self.begin_log()
                 if ss.args.private:
+                    
                     self.train_dp(ss,seed)
+                    
                 else:
                     self.train_vanilla(ss,seed)
+                
                 print(f'Using {self.mia_shadow_mode} as MIA mode')
                 
                 self.train_shadow(ss,seed)
@@ -84,24 +112,21 @@ class node_GCN():
                 self.shadow_MIA_logi()
                 self.shadow_MIA_ada()
                 self.confidence_MIA()
-            new_res = pd.DataFrame(self.shadow_res)
-            path = os.path.join(ss.privacy_dir,f'MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_result.csv')
-            if ss.args.private:
-                path = os.path.join(ss.privacy_dir,f'RDP_{ss.args.rdp}_MIA_{self.mia_shadow_mode}_{ss.args.mia_subsample_rate}_{ss.args.learning_rate}_{ss.args.noise_scale}_{ss.args.split_n_subgraphs}_result.csv')
-            # try: 
-            #     old_res = pd.read_csv(path)
-            #     new_res = pd.concat([old_res,new_res])
-            # except:
-            new_res.to_csv(path)
-            print(new_res)
+            
+            # print(self.shadow_res)
         else:
-            self.train_vanilla(ss)
+            raise ValueError("No shadow mode deprecated now. Use shadow.")
         
+        self.path_total_params = os.path.join(ss.root_dir, 'total_params.csv')
+
         then = time.time()
         runtime = then - now
+        
         print(f"\n--- Script completed in {runtime} seconds ---\n")
+        self.output_total_res()
 
     def train_dp(self,ss,seed=None):
+        nownow = time.time()
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
@@ -114,22 +139,29 @@ class node_GCN():
 
         if ss.args.private:
             if ss.args.rdp:
+                self.shadow_res['Dp'].append('False')
+                self.shadow_res['Rdp'].append('True')
+                self.shadow_res['Ldp'].append('False') 
                 shadow = 'RDP'
                 self.vanilla_model = vanilla_GCN_node(ss,
                                             data=self.data,
                                             shadow=shadow)
                 best_score = self.vanilla_model.train_rdp() 
             else:
+                self.shadow_res['Dp'].append('True')
+                self.shadow_res['Rdp'].append('False')
+                self.shadow_res['Ldp'].append('False')
                 shadow = 'DP'
                 self.vanilla_model = vanilla_GCN_node(ss,
                                             data=self.data,
                                             shadow=shadow)
                 best_score = self.vanilla_model.train_dp() 
             
-            
             private_paras = self.vanilla_model.private_paras
-            self.shadow_res['epsilon'].append(f'{private_paras[0]:.4f}')
-            self.shadow_res['delta'].append(f'{private_paras[1]:.4f}') 
+            self.shadow_res['Epsilon'].append(f'{private_paras[0]:.4f}')
+            self.shadow_res['Delta'].append(f'{private_paras[1]:.4f}')
+            
+            
         else:
             raise TypeError("dp train not properly used, check your setting.")
         
@@ -139,13 +171,22 @@ class node_GCN():
         print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         self.shadow_res["Vanilla train acc"].append(f'{self.vanilla_model.train_accs[-1]:.4f}')
         self.shadow_res["Vanilla train loss"].append(f'{self.vanilla_model.train_losses[-1]:.4f}')
+        self.shadow_res["Vanilla train f1"].append(f'{self.vanilla_model.train_f1s[-1]:.4f}')
+        
         self.shadow_res["Vanilla test acc"].append(f'{test_acc:.4f}')
         self.shadow_res["Vanilla test loss"].append(f'{test_loss:.4f}')
+        self.shadow_res["Vanilla test f1"].append(f'{test_f1:.4f}')
+
             
+        thenthen = time.time()
+        runtime = thenthen - nownow
+        self.shadow_res["Vanilla runtime per"].append(f'{runtime/self.vanilla_model.last_epoch:.4f}')
+        self.shadow_res["Epochs"].append(self.vanilla_model.last_epoch)
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
     def train_vanilla(self,ss,seed=None):
+        nownow = time.time()
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
@@ -159,6 +200,11 @@ class node_GCN():
         if ss.args.private:
             raise TypeError("vanilla train not properly used, check your setting.")
         else:
+            self.shadow_res['Dp'].append('False')
+            self.shadow_res['Rdp'].append('False')
+            self.shadow_res['Ldp'].append('False')
+            self.shadow_res['Epsilon'].append(f'0')
+            self.shadow_res['Delta'].append(f'0')
             shadow = 'vanilla'
             self.vanilla_model = vanilla_GCN_node(ss,
                                                 data=self.data,
@@ -172,13 +218,21 @@ class node_GCN():
         print(f"Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         self.shadow_res["Vanilla train acc"].append(f'{self.vanilla_model.train_accs[-1]:.4f}')
         self.shadow_res["Vanilla train loss"].append(f'{self.vanilla_model.train_losses[-1]:.4f}')
+        self.shadow_res["Vanilla train f1"].append(f'{self.vanilla_model.train_f1s[-1]:.4f}')
+        
         self.shadow_res["Vanilla test acc"].append(f'{test_acc:.4f}')
         self.shadow_res["Vanilla test loss"].append(f'{test_loss:.4f}')
-            
+        self.shadow_res["Vanilla test f1"].append(f'{test_f1:.4f}')
+
+        thenthen = time.time()
+        runtime = thenthen - nownow
+        self.shadow_res["Vanilla runtime per"].append(f'{runtime/self.vanilla_model.last_epoch:.4f}')
+        self.shadow_res["Epochs"].append(self.vanilla_model.last_epoch)
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
 
     def train_shadow(self,ss,seed=None):
+        nownow = time.time()
         if seed:
             random.seed(seed)
             torch.manual_seed(seed)
@@ -198,9 +252,16 @@ class node_GCN():
         print(f"Shadow Model Test score: {test_loss:.4f} with accuracy {test_acc:.4f} and f1 {test_f1:.4f}")
         self.shadow_res["Shadow train acc"].append(f'{self.shadow_model.train_accs[-1]:.4f}')
         self.shadow_res["Shadow train loss"].append(f'{self.shadow_model.train_losses[-1]:.4f}')
+        self.shadow_res["Shadow train f1"].append(f'{self.shadow_model.train_f1s[-1]:.4f}')
+
         self.shadow_res["Shadow test acc"].append(f'{test_acc:.4f}')
         self.shadow_res["Shadow test loss"].append(f'{test_loss:.4f}')
-    
+        self.shadow_res["Shadow test f1"].append(f'{test_f1:.4f}')
+
+        thenthen = time.time()
+        runtime = thenthen - nownow
+        self.shadow_res["Shadow runtime per"].append(f'{runtime/self.shadow_model.last_epoch:.4f}')
+        self.shadow_res["Shadow epochs"].append(self.shadow_model.last_epoch)
         with open(os.path.join(ss.root_dir, 'adam_hyperparams.csv'), 'a') as f: 
             f.write(f"{ss.args.dataset},{ss.args.noise_scale},{ss.args.learning_rate},{test_f1:.4f}\n")
     
@@ -369,6 +430,38 @@ class node_GCN():
         print(metrics.classification_report(shadow_test_y,res[best_j],labels=range(2)))
         self.shadow_res['MIA confidence mse'].append(f'{best_score:.4f}')
         self.shadow_res['MIA confidence thr'].append(f'{best_j:.4f}')
+
+    def begin_log(self):
+        
+        self.shadow_res['Sampler'].append(self.ss.args.sampler)
+        self.shadow_res['Sampler batchsize'].append(self.ss.args.sampler_batchsize)
+        self.shadow_res["Occurance k"].append(self.ss.args.occurance_k)
+        self.shadow_res["Cluster numparts"].append(self.ss.args.cluster_numparts)
+        self.shadow_res["Saint numsteps"].append(self.ss.args.saint_numsteps)
+        self.shadow_res["Saint samplecoverage"].append(self.ss.args.saint_samplecoverage)
+        self.shadow_res["Saint walklenth"].append(self.ss.args.saint_walklenth)
+        self.shadow_res["Dataset"].append(self.ss.args.dataset)
+        self.shadow_res["MIA subsample rate"].append(self.ss.args.mia_subsample_rate)
+        self.shadow_res["Num val"].append(self.ss.args.num_val)
+        self.shadow_res["Num test"].append(self.ss.args.num_test)
+        self.shadow_res["Layers"].append(self.ss.args.k_layers)
+        self.shadow_res["Hidden dims"].append(self.ss.args.hidden_dim)
+        self.shadow_res["Learning rate"].append(self.ss.args.learning_rate)
+        self.shadow_res["Shadow learning rate"].append(self.ss.args.shadow_learning_rate)
+        self.shadow_res["Dropout"].append(self.ss.args.dropout)
+        self.shadow_res["Activation"].append(self.ss.args.activation)
+        self.shadow_res["Early stopping"].append(self.ss.args.early_stopping)
+        self.shadow_res["Patience"].append(self.ss.args.patience)
+        self.shadow_res["Optim type"].append(self.ss.args.optim_type)
+
+    def output_total_res(self):
+        df = pd.DataFrame(self.shadow_res)
+        if os.path.exists(self.path_total_params):
+            old_df = pd.read_csv(self.path_total_params,index_col=0)
+            df = pd.concat([old_df,df],ignore_index=True)
+            df.to_csv(self.path_total_params,mode='w')
+        else:
+            df.to_csv(self.path_total_params)
 
 if __name__ == '__main__':
     model = node_GCN()
