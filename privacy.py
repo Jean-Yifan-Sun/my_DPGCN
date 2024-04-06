@@ -71,7 +71,7 @@ class DPAdam(Adam):
         self.noise_scale = noise_scale
         self.gradient_norm_bound = gradient_norm_bound
         self.lot_size = lot_size
-        # self.sample_size = sample_size
+        self.sample_size = sample_size
         for group in self.param_groups:
             for p in group['params']:
                 if p.requires_grad:

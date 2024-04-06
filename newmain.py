@@ -69,7 +69,7 @@ class node_GCN():
                 "Sampler batchsize":[],
                 "Occurance k":[],
                 "Cluster numparts":[],
-                "Saint numsteps":[],
+                "Saint rootnodes":[],
                 "Saint samplecoverage":[],
                 "Saint walklenth":[],
                 "Epochs":[],
@@ -437,7 +437,7 @@ class node_GCN():
         self.shadow_res['Sampler batchsize'].append(self.ss.args.sampler_batchsize)
         self.shadow_res["Occurance k"].append(self.ss.args.occurance_k)
         self.shadow_res["Cluster numparts"].append(self.ss.args.cluster_numparts)
-        self.shadow_res["Saint numsteps"].append(self.ss.args.saint_numsteps)
+        self.shadow_res["Saint rootnodes"].append(self.ss.args.saint_rootnodes)
         self.shadow_res["Saint samplecoverage"].append(self.ss.args.saint_samplecoverage)
         self.shadow_res["Saint walklenth"].append(self.ss.args.saint_walklenth)
         self.shadow_res["Dataset"].append(self.ss.args.dataset)

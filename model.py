@@ -291,10 +291,15 @@ class vanilla_GCN_node():
         self.sampler_batchsize = ss.args.sampler_batchsize
         self.train_data = self.data.subgraph(self.data.train_mask)
         self.train_nodes = self.train_data.x.shape[0]
+
         if self.sampler_batchsize<1: 
+            self.sampler_batchsize_percent = self.sampler_batchsize
             self.sampler_batchsize = int(self.train_nodes * self.sampler_batchsize)
+        else:
+            self.sampler_batchsize_percent = self.sampler_batchsize / self.train_nodes
+
         self.cluster_numparts = ss.args.cluster_numparts
-        self.saint_numsteps = ss.args.saint_numsteps
+        self.saint_rootnodes = ss.args.saint_rootnodes
         self.saint_samplecoverage = ss.args.saint_samplecoverage
         self.saint_walklenth = ss.args.saint_walklenth
         self.shadowk_depth = ss.args.shadowk_depth
@@ -391,21 +396,21 @@ class vanilla_GCN_node():
         elif self.sampler_type in ['saint_node','saint_rw']:
             loader = SaintSampler(data=self.train_data,
                                     type=self.sampler_type,
-                                    batch_size=self.sampler_batchsize,
-                                    num_steps=self.saint_numsteps,
+                                    batch_size=self.saint_rootnodes,#这里暂时代表用几个初始节点采样
+                                    num_steps=self.sampler_batchsize*self.epochs,#为了让每一个epoch里的子图都是随机重新采样的 不过问题不大
                                     sample_coverage=self.saint_samplecoverage,
                                     walk_length=self.saint_walklenth)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.train_nodes,
                                     m=self.sampler_batchsize,
-                                    max_terms_per_node=self.saint_numsteps,#因为saint多少个step就是在一个epoch里采样几次，有放回的话，就代表有可能出现几次
+                                    max_terms_per_node=self.sampler_batchsize,#saint每一个子图都有可能有所以是等于batch size
                                     C=self.gradient_norm_bound,
                                     delta=None)
         elif self.sampler_type == 'cluster':
-            sampler_batchsize = int(self.cluster_numparts * self.sampler_batchsize / self.train_nodes)
+            sampler_batchsize = int(self.cluster_numparts * self.sampler_batchsize_percent)
             loader = ClusterSampler(data=self.train_data,
                                     num_parts=self.cluster_numparts,
-                                    batch_size=sampler_batchsize)
+                                    batch_size=1)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.train_nodes,
                                     m=sampler_batchsize,
@@ -414,7 +419,7 @@ class vanilla_GCN_node():
                                     delta=None)
         elif self.sampler_type == 'neighbor':
             loader = NeighborReplaceSampler(data=self.train_data,
-                                    batch_size=self.sampler_batchsize,
+                                    batch_size=1,
                                     layers=self.k_layers)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.train_nodes,
@@ -664,19 +669,25 @@ class vanilla_GCN_node():
 
         maxeps = accountant.get_privacy(epochs=self.epochs)
         for epoch,_,_ in zip(train_bar,val_bar,private_bar):
+            step = 0
             
             optimizer.zero_accum_grad()
             
-            for data in loader:
-                data = data.to(self.device)
-                optimizer.zero_sample_grad()
-                pred_prob_node = model(data)
-                # print(pred_prob_node.shape,data.y.shape)
-                loss = self.loss(pred_prob_node,data.y)
-                loss.backward()
-                optimizer.per_sample_step()    
-                optimizer.step(self.device)
-           
+            for data in loader:               
+                if step < self.sampler_batchsize:
+                    step += 1
+                    optimizer.zero_sample_grad()
+                    data = data.to(self.device)
+                    pred_prob_node = model(data)
+                    loss = self.loss(pred_prob_node,data.y)
+                    loss.backward()
+                    optimizer.per_sample_step()
+                else:
+                    break
+
+            optimizer.step(self.device)
+                
+
             eps = accountant.get_privacy(epoch+1)
             delta = accountant.target_delta
             self.private_paras = [eps, delta]

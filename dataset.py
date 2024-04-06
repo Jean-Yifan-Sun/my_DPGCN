@@ -173,7 +173,7 @@ def SaintSampler(data:data,type:str,batch_size:int,num_steps:int,sample_coverage
     assert type in ['saint_rw','saint_node']
     if type == 'saint_node':
         loader = GraphSAINTNodeSampler(data=data.cpu(),
-                                       batch_size=batch_size,
+                                       batch_size=batch_size,#用多少根节点开始采样
                                        num_steps=num_steps,
                                        sample_coverage=sample_coverage,
                                        shuffle=True)

@@ -74,15 +74,15 @@ def parse_arguments():
     argparser.add_argument("--sampler", type=str, default='none',
                            help='none, occurance, saint_node, saint_rw, shadow_k, cluster, neighbor')
     argparser.add_argument("--sampler_batchsize", type=float, default=.5,
-                           help='batch size for each sampler. either int or percent (几个node)')
+                           help='batch size for each sampler. either int or percent (一个batch里几个子图)')
     argparser.add_argument("--occurance_k", type=int, default=3,
                            help='occurance constrain k')
     argparser.add_argument("--cluster_numparts", type=int, default=100,
                            help='num parts of cluster sampler')
-    argparser.add_argument("--saint_numsteps", type=int, default=10,
-                           help='num steps of saint sampler (几个子图)')
+    argparser.add_argument("--saint_rootnodes", type=int, default=10,
+                           help='num roots of saint sampler (用几个节点去做初始节点)')
     argparser.add_argument("--saint_samplecoverage", type=int, default=100,
-                           help='num nodes for calculate coverage of saint sampler')
+                           help='num nodes for calculate coverage of saint sampler (无所谓)')
     argparser.add_argument("--saint_walklenth", type=int, default=3,
                            help='num random walks for saint sampler')
     argparser.add_argument("--shadowk_depth", type=int, default=3,
