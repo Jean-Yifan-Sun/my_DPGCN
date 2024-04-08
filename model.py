@@ -730,31 +730,26 @@ class vanilla_GCN_node():
             return val_loss
 
     def train_vanilla(self):
+        assert self.shadow in ['shadow','vanilla']
         model = self.model
         if self.shadow == 'shadow':
-            if self.optim_type == 'sgd':
-                self.optimizer = torch.optim.SGD(model.parameters(),
-                                                    lr=self.shadow_learning_rate,
-                                                    weight_decay=self.weight_decay)
-
-            elif self.optim_type == 'adam':
-                self.optimizer = torch.optim.Adam(model.parameters(),
-                                                    lr=self.shadow_learning_rate,
-                                                    weight_decay=self.weight_decay)
-            else:
-                raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+            lr = self.shadow_learning_rate
+            epochs = self.shadow_epochs
         else:
-            if self.optim_type == 'sgd':
-                self.optimizer = torch.optim.SGD(model.parameters(),
-                                                    lr=self.learning_rate,
-                                                    weight_decay=self.weight_decay)
+            lr = self.learning_rate
+            epochs = self.epochs
 
-            elif self.optim_type == 'adam':
-                self.optimizer = torch.optim.Adam(model.parameters(),
-                                                    lr=self.learning_rate,
-                                                    weight_decay=self.weight_decay)
-            else:
-                raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+        if self.optim_type == 'sgd':
+            self.optimizer = torch.optim.SGD(model.parameters(),
+                                                lr=lr,
+                                                weight_decay=self.weight_decay)
+
+        elif self.optim_type == 'adam':
+            self.optimizer = torch.optim.Adam(model.parameters(),
+                                                lr=lr,
+                                                weight_decay=self.weight_decay)
+        else:
+            raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
     
         
         optimizer = self.optimizer
@@ -763,12 +758,10 @@ class vanilla_GCN_node():
         model.train()
 
         print('Training...\n')
-        if self.shadow == 'shadow':
-            train_bar = tqdm(range(self.shadow_epochs),position=0,leave=True,colour='#3399FF')
-            val_bar = tqdm(range(self.shadow_epochs),position=1,leave=True,colour='#33CC00')
-        else:
-            train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
-            val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
+       
+        train_bar = tqdm(range(epochs),position=0,leave=True,colour='#3399FF')
+        val_bar = tqdm(range(epochs),position=1,leave=True,colour='#33CC00')
+        
 
         for epoch,_ in zip(train_bar,val_bar):    
             optimizer.zero_grad()

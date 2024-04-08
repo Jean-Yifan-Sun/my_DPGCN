@@ -2,10 +2,10 @@ source /home/sunyf23/anaconda3/etc/profile.d/conda.sh
 conda init bash
 conda activate mygcn
 
-sampler="cluster saint_rw saint_node neighbor occurance"
+# sampler="cluster saint_rw saint_node neighbor occurance"
 
-for sample in $sampler
-do
+# for sample in $sampler
+# do
 /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping no --patience 100 --weight_decay 0 --learning_rate 1e-3 --shadow_learning_rate 0.001 --dropout 0  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0.5 --dataset cora --device_num 3 --private no --noise_scale 1 --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 2 --sampler $sample --sampler_batchsize .2 --occurance_k 10 --cluster_numparts 30 --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false
 
 /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping no --patience 100 --weight_decay 0 --learning_rate 1e-3 --shadow_learning_rate 0.001 --dropout 0  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0.5 --dataset citeseer --device_num 3 --private no --noise_scale 1 --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 2 --sampler $sample --sampler_batchsize .2 --occurance_k 10 --cluster_numparts 30 --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false
