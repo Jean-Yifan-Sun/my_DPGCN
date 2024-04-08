@@ -34,6 +34,7 @@ class node_GCN():
         torch.backends.cudnn.enabled = True
         torch.backends.cudnn.deterministic = True
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.dp_type = ss.args.dp_type
 
         self.shadow_res = {
                 "Dataset":[],
@@ -138,7 +139,7 @@ class node_GCN():
         self.data = self.get_dataloader(dataset,num_test=ss.args.num_test,num_val=ss.args.num_val,shadow_set=False,mia_subsample_rate=ss.args.mia_subsample_rate)
 
         if ss.args.private:
-            if ss.args.rdp:
+            if self.dp_type == 'rdp':
                 self.shadow_res['Dp'].append('False')
                 self.shadow_res['Rdp'].append('True')
                 self.shadow_res['Ldp'].append('False') 
@@ -147,7 +148,7 @@ class node_GCN():
                                             data=self.data,
                                             shadow=shadow)
                 best_score = self.vanilla_model.train_rdp() 
-            else:
+            elif self.dp_type == 'dp':
                 self.shadow_res['Dp'].append('True')
                 self.shadow_res['Rdp'].append('False')
                 self.shadow_res['Ldp'].append('False')
@@ -155,7 +156,16 @@ class node_GCN():
                 self.vanilla_model = vanilla_GCN_node(ss,
                                             data=self.data,
                                             shadow=shadow)
-                best_score = self.vanilla_model.train_dp() 
+                best_score = self.vanilla_model.train_dp()
+            elif self.dp_type == 'ldp':
+                self.shadow_res['Dp'].append('False')
+                self.shadow_res['Rdp'].append('False')
+                self.shadow_res['Ldp'].append('True')
+                shadow = 'LDP'
+                self.vanilla_model = vanilla_GCN_node(ss,
+                                            data=self.data,
+                                            shadow=shadow)
+                best_score = self.vanilla_model.train_ldp() 
             
             private_paras = self.vanilla_model.private_paras
             self.shadow_res['Epsilon'].append(f'{private_paras[0]:.4f}')
@@ -303,8 +313,9 @@ class node_GCN():
             data = get_dataset(cls="Twitch",name=dataset)
         else:
             raise Exception("Incorrect dataset specified.")
+        raw_data = data[0]
         # data = node_split(data[0],num_val=num_val,num_test=num_test)
-        vanilla,shadow = subsample_graph_both_pyg(data=data[0],rate=mia_subsample_rate)
+        vanilla,shadow = subsample_graph_both_pyg(data=raw_data,rate=mia_subsample_rate)
         # vanilla,shadow = subsample_mask_graph_full(data,mia_subsample_rate)
         print(f"\nGet dataset {dataset}\n")
         if shadow_set:

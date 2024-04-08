@@ -25,8 +25,9 @@ from dataset import *
 loader = NeighborReplaceSampler(data=datas,
                                 batch_size=1,
                                 layers=2)
-sampled_data = next(iter(loader))
-print(sampled_data)
+for i in range(5):
+    sampled_data = next(iter(loader))
+    print(sampled_data)
 # print(sampled_data.batch_size)
 print(len(loader))
 ss_dict = {

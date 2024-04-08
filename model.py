@@ -52,23 +52,24 @@ class two_layer_GCN(torch.nn.Module):
         x = self.conv2(x,edge_index)
         return x
 
-class shadowk_two_layer_GCN(two_layer_GCN):
-    def __init__(self,  *args, **kwargs) -> None:
+class ldp_two_layer_GCN(two_layer_GCN):
+    def __init__(self, epsilon:float, input_range:tuple, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self.lin = torch.nn.Linear(2 * self.hidden_channels, self.num_classes)
+        self.epsilon = epsilon
+        self.input_range = input_range
+        self.mechanism = MultiBit(eps=self.epsilon,
+                                  input_range=self.input_range,
+                                  device=self.device)
 
     def forward(self,data):
-        batch = data.batch
-        root_n_id = data.root_n_id
         x = data.x.float()
+        x = self.mechanism(x)
         edge_index = data.edge_index
         x = self.conv1(x,edge_index)
         x = self.activation(x)
         x = F.dropout(x, p=self.dropout,training=self.training)
         x = self.conv2(x,edge_index)
 
-        # x = torch.cat([x[root_n_id], global_mean_pool(x, batch)], dim=-1)
-        # x = self.lin(x)
         return x
 class three_layer_GCN(torch.nn.Module):
     """
@@ -321,6 +322,9 @@ class vanilla_GCN_node():
         self.lot_size = ss.args.lot_size
         self.dp_subgraph_sample_size = ss.args.dp_subgraph_sample_size
         self.delta = ss.args.delta
+        if self.shadow == 'LDP':
+            self.ldp_eps = ss.args.ldp_eps
+            self.input_range = (torch.max(self.train_data.x),torch.min(self.train_data.x))
         self._init_model()
 
     
@@ -341,8 +345,8 @@ class vanilla_GCN_node():
         
         if self.k_layers == 2:
             model = two_layer_GCN(ss_dict).to(self.device)
-            if self.sampler_type == 'shadow_k' and self.shadow == 'RDP':
-                model = shadowk_two_layer_GCN(ss_dict).to(self.device)
+            if self.shadow == 'LDP':
+                model = ldp_two_layer_GCN(ss=ss_dict,epsilon=self.ldp_eps,input_range=self.input_range).to(self.device)
         elif self.k_layers == 3:
             model = three_layer_GCN(ss_dict).to(self.device)
         else:
@@ -810,6 +814,73 @@ class vanilla_GCN_node():
         else:
             val_loss = self.train_rdp_with_sampler()
         return val_loss
+    
+    def train_ldp(self):
+        model = self.model
+        assert self.shadow == 'LDP'
+        if self.optim_type == 'sgd':
+            self.optimizer = torch.optim.SGD(model.parameters(),
+                                                lr=self.learning_rate,
+                                                weight_decay=self.weight_decay)
+
+        elif self.optim_type == 'adam':
+            self.optimizer = torch.optim.Adam(model.parameters(),
+                                                lr=self.learning_rate,
+                                                weight_decay=self.weight_decay)
+        else:
+            raise Exception(f"{self.optim_type} not a valid optimizer (adam or sgd).")
+
+        
+        optimizer = self.optimizer
+        early_stopping = EarlyStopping(self.patience)
+
+        model.train()
+
+        print('Training...\n')
+       
+        train_bar = tqdm(range(self.epochs),position=0,leave=True,colour='#3399FF')
+        val_bar = tqdm(range(self.epochs),position=1,leave=True,colour='#33CC00')
+        private_bar = tqdm(range(self.epochs),position=2,leave=True,colour='#FFFF00')
+
+        for epoch,_,_ in zip(train_bar,val_bar,private_bar):    
+            optimizer.zero_grad()
+            pred_prob_node = model(self.data)
+            loss = self.loss(pred_prob_node[self.data.train_mask],
+                                self.data.y[self.data.train_mask])
+            loss.backward()
+            optimizer.step()
+        
+            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+                print("Old LR:", self.optimizer.param_groups[0]['lr'])
+                self.scheduler.step()
+                print("New LR:", self.optimizer.param_groups[0]['lr'])
+
+            train_acc, prec, rec, train_f1 = self.calculate_accuracy(
+                    pred_prob_node[self.data.train_mask],
+                    self.data.y[self.data.train_mask])
+            train_loss = loss.item()
+
+            self.private_paras = [self.ldp_eps, self.delta]
+            private_bar.set_description(f"Spent privacy eps:{self.ldp_eps:.4f} / max eps:{self.ldp_eps:.4f}")
+            
+            self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1,
+                    split=f'{self.shadow} train')
+            self.train_losses.append(train_loss)
+            self.train_accs.append(train_acc)
+            self.train_f1s.append(train_f1)
+            val_loss = self.evaluate_on_valid(model, epoch, val_bar)
+            
+            self.plot_learning_curve()
+
+            if self.early_stopping:
+                early_stopping(val_loss)
+                if early_stopping.early_stop:
+                    break
+        self.last_epoch = epoch + 1
+        if self.early_stopping:
+            return -early_stopping.best_score
+        else:
+            return val_loss
 
     def calculate_accuracy(self, pred, target, rand_maj_baseline=False):
 

@@ -376,9 +376,10 @@ def get_training_privacy_accountant(config,
 
 
 class Mechanism:
-    def __init__(self, eps, input_range, **kwargs):
+    def __init__(self, eps, input_range,device=None, **kwargs):
         self.eps = eps
         self.alpha, self.beta = input_range
+        self.device = device
 
     def __call__(self, x):
         raise NotImplementedError
@@ -416,6 +417,7 @@ class MultiBit(Mechanism):
         x_prime = d * (self.beta - self.alpha) / (2 * m)
         x_prime = x_prime * (em + 1) * x_star / (em - 1)
         x_prime = x_prime + (self.alpha + self.beta) / 2
+        x_prime = x_prime.to(self.device)
         return x_prime
 
 class Duchi(Mechanism):

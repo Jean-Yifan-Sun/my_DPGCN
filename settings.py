@@ -91,6 +91,10 @@ def parse_arguments():
                            help='num neighbors for shadowk sampler')
     argparser.add_argument("--shadowk_replace", type=str2bool, default=False,
                            help='node replacement for shadowk sampler (True就有放回)')
+    argparser.add_argument("--dp_type", type=str, default='dp',
+                           help='dp ldp rdp')
+    argparser.add_argument("--ldp_eps", type=float, default=10,
+                           help='ldp eps')
 
     args = argparser.parse_args()
     print(args)
