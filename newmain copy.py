@@ -425,16 +425,18 @@ class node_GCN():
         [_,_,shadow_test_x,shadow_test_y,shadow_test_x_label] = self.shadow_mia_data_list
         shadow_test_y = shadow_test_y.reshape(-1)
 
+        losses = []
         for i in range(shadow_test_x.shape[0]):
             item = shadow_test_x[i]
             label = shadow_test_x_label[i]
             loss = metrics.mean_squared_error(label,item,squared=False)
+            losses.append(1-loss)
             for j in confidences:
                 res[j].append(1. if (loss<j) else 0.)
-                        
+        # print(metrics.roc_auc_score(shadow_test_y,losses))
         for j in confidences:
-            # temp = metrics.accuracy_score(shadow_test_y,res[j])
-            temp = metrics.roc_auc_score(shadow_test_y,res[j])
+            temp = metrics.accuracy_score(shadow_test_y,res[j])
+            print(metrics.roc_auc_score(shadow_test_y,res[j]))
             if temp>best_score:
                 best_score = temp
                 best_j = j
