@@ -66,6 +66,8 @@ class node_GCN():
                 "Dp":[],
                 "Rdp":[],
                 "Ldp":[],
+                "Norm bound":[],
+                "Noise scale":[],
                 "Sampler":[],
                 "Sampler batchsize":[],
                 "Occurance k":[],
@@ -118,8 +120,11 @@ class node_GCN():
         else:
             raise ValueError("No shadow mode deprecated now. Use shadow.")
         
-        self.path_total_params = os.path.join(ss.root_dir, 'total_params.csv')
-
+        self.path_total_params = os.path.join(ss.root_dir, 'total_params_new.csv')
+        self.task_root = ss.args.task_root
+        if self.task_root != 'what':
+            self.path_total_params = os.path.join(ss.root_dir, f'/ress/{self.task_root}.csv')
+        
         then = time.time()
         runtime = then - now
         
@@ -465,6 +470,8 @@ class node_GCN():
         self.shadow_res["Early stopping"].append(self.ss.args.early_stopping)
         self.shadow_res["Patience"].append(self.ss.args.patience)
         self.shadow_res["Optim type"].append(self.ss.args.optim_type)
+        self.shadow_res["Norm bound"].append(self.ss.args.gradient_norm_bound)
+        self.shadow_res["Noise scale"].append(self.ss.args.noise_scale)
 
     def output_total_res(self):
         df = pd.DataFrame(self.shadow_res)

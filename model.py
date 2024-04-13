@@ -258,9 +258,10 @@ class vanilla_GCN_node():
         self.log_dir = ss.log_dir
         self.time_dir = ss.time_dir
         self.learning_rate_decay = False
-        self.scheduler = None
-        self.max_epochs_lr_decay = 200
-        self.scheduler_gamma = 1
+        self.scheduler = False
+        self.scheduler_step = ss.args.scheduler_step
+        self.max_epochs_lr_decay = ss.args.max_epochs_lr_decay
+        self.scheduler_gamma = ss.args.scheduler_gamma
 
         self.train_accs = []
         self.train_losses = []
@@ -368,9 +369,7 @@ class vanilla_GCN_node():
         self.trainable_params = trainable_params
         print("Trainable parameters", self.trainable_params)
 
-        if self.learning_rate_decay:
-            self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, step_size=1,
-                                                             gamma=self.scheduler_gamma)
+        
 
         self.loss = torch.nn.CrossEntropyLoss()
 
@@ -533,10 +532,10 @@ class vanilla_GCN_node():
             
             private_bar.set_description(f"Spent privacy eps:{eps:.4f} / max eps:{maxeps:.4f}")
             self.private_paras = [eps, delta]
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+            # if self.scheduler and epoch < self.max_epochs_lr_decay:
+            #     print("Old LR:", self.optimizer.param_groups[0]['lr'])
+            #     self.scheduler.step()
+            #     print("New LR:", self.optimizer.param_groups[0]['lr'])
                 
             self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
             self.train_losses.append(train_loss)
@@ -617,10 +616,10 @@ class vanilla_GCN_node():
             train_acc, prec, rec, train_f1 = self.calculate_accuracy(
                     pred_prob_node[self.data.train_mask],
                     self.data.y[self.data.train_mask])
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+            # if self.scheduler and epoch < self.max_epochs_lr_decay:
+            #     print("Old LR:", self.optimizer.param_groups[0]['lr'])
+            #     self.scheduler.step()
+            #     print("New LR:", self.optimizer.param_groups[0]['lr'])
                 
             self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
             self.train_losses.append(train_loss)
@@ -704,10 +703,10 @@ class vanilla_GCN_node():
             train_acc, prec, rec, train_f1 = self.calculate_accuracy(
                     pred_prob_node[self.data.train_mask],
                     self.data.y[self.data.train_mask])
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+            # if self.scheduler and epoch < self.max_epochs_lr_decay:
+            #     print("Old LR:", self.optimizer.param_groups[0]['lr'])
+            #     self.scheduler.step()
+            #     print("New LR:", self.optimizer.param_groups[0]['lr'])
                 
             self.log(train_bar,epoch, train_loss, train_acc, prec, rec, train_f1, split=f'{self.shadow} train')
             self.train_losses.append(train_loss)
@@ -771,10 +770,10 @@ class vanilla_GCN_node():
             loss.backward()
             optimizer.step()
         
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+            # if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+            #     print("Old LR:", self.optimizer.param_groups[0]['lr'])
+            #     self.scheduler.step()
+            #     print("New LR:", self.optimizer.param_groups[0]['lr'])
 
             train_acc, prec, rec, train_f1 = self.calculate_accuracy(
                     pred_prob_node[self.data.train_mask],
@@ -843,10 +842,10 @@ class vanilla_GCN_node():
             loss.backward()
             optimizer.step()
         
-            if self.scheduler != None and epoch < self.max_epochs_lr_decay:
-                print("Old LR:", self.optimizer.param_groups[0]['lr'])
-                self.scheduler.step()
-                print("New LR:", self.optimizer.param_groups[0]['lr'])
+            # if self.scheduler != None and epoch < self.max_epochs_lr_decay:
+            #     print("Old LR:", self.optimizer.param_groups[0]['lr'])
+            #     self.scheduler.step()
+            #     print("New LR:", self.optimizer.param_groups[0]['lr'])
 
             train_acc, prec, rec, train_f1 = self.calculate_accuracy(
                     pred_prob_node[self.data.train_mask],

@@ -67,10 +67,15 @@ def parse_arguments():
     
     argparser.add_argument("--rdp", type=str2bool, default=False,
                            help='use RDP or not')
-    # argparser.add_argument("--rdp_k", type=int, default=3,
-    #                        help='occurance constrain k')
-    # argparser.add_argument("--rdp_batchsize", type=float, default=.3,
-    #                        help='rdp batch size %')
+    argparser.add_argument("--scheduler", type=str2bool, default=False,
+                           help='scheduler or not')
+    argparser.add_argument("--scheduler_step", type=int, default=50,
+                           help='scheduler step')
+    argparser.add_argument("--scheduler_gamma", type=float, default=.5,
+                           help='scheduler_gamma')
+    argparser.add_argument("--max_epochs_lr_decay", type=int, default=200,
+                           help='max_epochs_lr_decay')
+    
     argparser.add_argument("--sampler", type=str, default='none',
                            help='none, occurance, saint_node, saint_rw, shadow_k, cluster, neighbor')
     argparser.add_argument("--sampler_batchsize", type=float, default=.5,
@@ -95,6 +100,8 @@ def parse_arguments():
                            help='dp ldp rdp')
     argparser.add_argument("--ldp_eps", type=float, default=10,
                            help='ldp eps')
+    argparser.add_argument("--task_root", type=str, default='what',
+                           help='需不需要根据任务来单独存结果文件,需要就改成想存的名字')
 
     args = argparser.parse_args()
     print(args)

@@ -241,14 +241,17 @@ class SGD_DP_AC():
     sampling_probability: The probability of sampling a single sample every batch. For uniform sampling without replacement, this is (batch_size / num_samples)
     Each record in the dataset is included in the sample independently with probability `sampling_probability`. Then the `DpEvent` `event` is applied to the sample of records.
     """
-    def __init__(self,noise_scale:float,clip_bound:float,sample_ratio:float,epochs:int,delta:None) -> None:
-        self.num_training_steps = epochs
+    def __init__(self,noise_scale:float,clip_bound:float,sample_ratio:float,delta=None) -> None:
+        # self.num_training_steps = epochs
         self.noise_multiplier = noise_scale / clip_bound
-        self.target_delta = delta
+        if not delta:
+            self.target_delta = None
+        else:
+            self.target_delta = delta
         self.sampling_probability = sample_ratio
 
-    def get_privacy(self) -> float:
-        return dpsgd_privacy_accountant(num_training_steps=self.num_training_steps, 
+    def get_privacy(self,epochs:int) -> float:
+        return dpsgd_privacy_accountant(num_training_steps=epochs, 
                                         noise_multiplier=self.noise_multiplier,
                                         target_delta=self.target_delta,
                                         sampling_probability=self.sampling_probability)
