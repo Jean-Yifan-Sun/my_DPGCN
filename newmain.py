@@ -36,7 +36,18 @@ class node_GCN():
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.dp_type = ss.args.dp_type
 
-        self.shadow_res = {
+        self.path_total_params = os.path.join(ss.root_dir, 'total_params_new.csv')
+        self.task_root = ss.args.task_root
+        if self.task_root != 'what':
+            self.path_total_params = os.path.join(ss.root_dir, 'ress')
+            self.path_total_params = os.path.join(self.path_total_params, f'{self.task_root}.csv')
+
+       
+        if ss.args.mia == 'shadow':
+            self.mia_shadow_mode = ss.args.mia_shadow_mode
+            
+            for i in trange(10,desc='10 Shadow dataset',leave=True):
+                self.shadow_res = {
                 "Dataset":[],
                 "Vanilla train acc":[],
                 "Vanilla train loss":[],
@@ -89,10 +100,7 @@ class node_GCN():
                 "Patience":[],
                 "Optim type":[]}
         
-        if ss.args.mia == 'shadow':
-            self.mia_shadow_mode = ss.args.mia_shadow_mode
-            
-            for i in trange(10,desc='10 Shadow dataset',leave=True):
+
                 seed = self.seed+i*self.seed
                 self.begin_log()
                 if ss.args.private:
@@ -115,21 +123,17 @@ class node_GCN():
                 self.shadow_MIA_logi()
                 self.shadow_MIA_ada()
                 self.confidence_MIA()
-            
+                self.output_total_res()
             # print(self.shadow_res)
         else:
             raise ValueError("No shadow mode deprecated now. Use shadow.")
         
-        self.path_total_params = os.path.join(ss.root_dir, 'total_params_new.csv')
-        self.task_root = ss.args.task_root
-        if self.task_root != 'what':
-            self.path_total_params = os.path.join(ss.root_dir, f'/ress/{self.task_root}.csv')
         
         then = time.time()
         runtime = then - now
         
         print(f"\n--- Script completed in {runtime} seconds ---\n")
-        self.output_total_res()
+        
 
     def train_dp(self,ss,seed=None):
         nownow = time.time()

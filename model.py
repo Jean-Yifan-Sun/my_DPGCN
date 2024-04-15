@@ -167,7 +167,7 @@ class Shadow_MIA_ranfor():
         self.random_state = ss_dict['random_state']
         self.n_estimators = ss_dict['n_estimators']
         self.criterion = ss_dict['criterion']#'gini', 'entropy', 'log_loss'
-        self.model = RandomForestClassifier(n_estimators=self.n_estimators,random_state=self.random_state,verbose=1)
+        self.model = RandomForestClassifier(n_estimators=self.n_estimators,random_state=self.random_state,verbose=1,n_jobs=-1)
         
         self.train(shadow_train_x,shadow_train_y)
         # self.evaluate(shadow_test_x,shadow_test_y)
@@ -204,7 +204,7 @@ class Shadow_MIA_logi():
     """
     def __init__(self, shadow_train_x,shadow_train_y,shadow_test_x,shadow_test_y, ss_dict, *args, **kwargs) -> None:
         super(Shadow_MIA_logi, self).__init__()
-        self.model = LogisticRegression(penalty=ss_dict['penalty'], solver=ss_dict['solver'],max_iter=ss_dict['max_iter'],random_state=ss_dict['random_state'],verbose=1,l1_ratio=ss_dict['l1_ratio'])
+        self.model = LogisticRegression(penalty=ss_dict['penalty'], solver=ss_dict['solver'],max_iter=ss_dict['max_iter'],random_state=ss_dict['random_state'],verbose=1,l1_ratio=ss_dict['l1_ratio'],n_jobs=-1)
         self.train(shadow_train_x,shadow_train_y)
         # self.evaluate(shadow_test_x,shadow_test_y)
 
@@ -325,7 +325,7 @@ class vanilla_GCN_node():
         self.delta = ss.args.delta
         if self.shadow == 'LDP':
             self.ldp_eps = ss.args.ldp_eps
-            self.input_range = (torch.max(self.train_data.x),torch.min(self.train_data.x))
+            self.input_range = (torch.max(self.data.x),torch.min(self.data.x))
         self._init_model()
 
     
@@ -404,7 +404,7 @@ class vanilla_GCN_node():
                                     sample_coverage=self.saint_samplecoverage,
                                     walk_length=self.saint_walklenth)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
-                                    Ntr=self.train_nodes,
+                                    Ntr=self.sampler_batchsize*self.epochs,
                                     m=self.sampler_batchsize,
                                     max_terms_per_node=self.sampler_batchsize,#saint每一个子图都有可能有所以是等于batch size
                                     C=self.gradient_norm_bound,
@@ -415,7 +415,7 @@ class vanilla_GCN_node():
                                     num_parts=self.cluster_numparts,
                                     batch_size=1)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
-                                    Ntr=self.train_nodes,
+                                    Ntr=self.cluster_numparts,
                                     m=sampler_batchsize,
                                     max_terms_per_node=1,
                                     C=self.gradient_norm_bound,
