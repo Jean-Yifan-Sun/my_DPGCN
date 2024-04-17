@@ -82,7 +82,7 @@ def parse_arguments():
                            help='batch size for each sampler. either int or percent (一个batch里几个子图)')
     argparser.add_argument("--occurance_k", type=int, default=3,
                            help='occurance constrain k')
-    argparser.add_argument("--cluster_numparts", type=int, default=100,
+    argparser.add_argument("--cluster_numparts", type=float, default=.5,
                            help='num parts of cluster sampler')
     argparser.add_argument("--saint_rootnodes", type=int, default=10,
                            help='num roots of saint sampler (用几个节点去做初始节点)')

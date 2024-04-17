@@ -301,6 +301,11 @@ class vanilla_GCN_node():
             self.sampler_batchsize_percent = self.sampler_batchsize / self.train_nodes
 
         self.cluster_numparts = ss.args.cluster_numparts
+        if self.cluster_numparts < 1:
+            self.cluster_numparts = int(self.train_nodes * self.cluster_numparts)
+            print(self.cluster_numparts)
+        self.cluster_numparts = int(self.cluster_numparts)
+
         self.saint_rootnodes = ss.args.saint_rootnodes
         self.saint_samplecoverage = ss.args.saint_samplecoverage
         self.saint_walklenth = ss.args.saint_walklenth
@@ -326,6 +331,11 @@ class vanilla_GCN_node():
         if self.shadow == 'LDP':
             self.ldp_eps = ss.args.ldp_eps
             self.input_range = (torch.max(self.data.x),torch.min(self.data.x))
+        
+        self.avgdegs = self.data.edge_index.shape[1] / self.data.x.shape[0]
+        if self.occurance_k<1:
+            self.occurance_k = int(self.avgdegs * self.occurance_k)
+
         self._init_model()
 
     
@@ -410,13 +420,13 @@ class vanilla_GCN_node():
                                     C=self.gradient_norm_bound,
                                     delta=None)
         elif self.sampler_type == 'cluster':
-            sampler_batchsize = int(self.cluster_numparts * self.sampler_batchsize_percent)
+            self.sampler_batchsize = int(self.cluster_numparts * self.sampler_batchsize_percent)
             loader = ClusterSampler(data=self.train_data,
                                     num_parts=self.cluster_numparts,
                                     batch_size=1)
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.cluster_numparts,
-                                    m=sampler_batchsize,
+                                    m=self.sampler_batchsize,
                                     max_terms_per_node=1,
                                     C=self.gradient_norm_bound,
                                     delta=None)
@@ -642,6 +652,10 @@ class vanilla_GCN_node():
     def train_rdp_with_sampler(self):
         assert self.sampler_type in ['saint_node', 'saint_rw', 'neighbor', 'cluster']
         model = self.model
+
+        if self.sampler_type == 'cluster':
+            self.learning_rate = (6e-3)
+
         if self.private and self.shadow == 'RDP':
             if self.optim_type == 'sgd':
                 self.optimizer = GCN_DPSGD(model.parameters(), 
