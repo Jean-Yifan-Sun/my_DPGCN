@@ -4,11 +4,11 @@ conda activate mygcn
 
 
 
-sampler="neighbor occurance"
+sampler="occurance"
 device=3
 batchsize=0.4
-ns=2
-ock=20
+ns=1
+ock=10
 for sample in $sampler
 do
 /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping yes --patience 200 --weight_decay 0 --learning_rate 1e-3 --shadow_learning_rate 0.001 --dropout 0.5  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0.5 --dataset cora --device_num $device --private yes --noise_scale $ns --split_n_subgraphs 1 --optim_type adam --gradient_norm_bound 1  --sampler $sample --sampler_batchsize $batchsize --occurance_k $ock --cluster_numparts 30 --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false --dp_type rdp --task_root cora_ns2_nb1_$sample

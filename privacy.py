@@ -500,3 +500,13 @@ class Duchi(Mechanism):
                 del t_star
                 t_star = ((torch.bernoulli((torch.ones_like(v)-.5))-.5)*2*self.B).to(self.device)
             return t_star.unsqueeze(0)
+
+if __name__ == '__main__':
+    m=887
+    ns=1
+    test = GCN_DP_AC(noise_scale=ns,
+              Ntr=m*500,
+              m=m,
+              C=1,
+              max_terms_per_node=(m))
+    print(test.get_privacy(500)*500)

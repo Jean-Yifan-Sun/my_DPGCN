@@ -2,7 +2,7 @@ source /home/sunyf23/anaconda3/etc/profile.d/conda.sh
 conda init bash
 conda activate mygcn
 
-sampler="saint_rw saint_node"
+sampler="saint_node"
 device=0
 batchsize=0.4
 ns=2

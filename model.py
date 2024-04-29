@@ -416,7 +416,7 @@ class vanilla_GCN_node():
             accountant = GCN_DP_AC(noise_scale=self.noise_scale,
                                     Ntr=self.sampler_batchsize*self.epochs,
                                     m=self.sampler_batchsize,
-                                    max_terms_per_node=self.sampler_batchsize,#saint每一个子图都有可能有所以是等于batch size
+                                    max_terms_per_node=self.sampler_batchsize*self.epochs,#saint每一个子图都有可能有所以是等于batch size
                                     C=self.gradient_norm_bound,
                                     delta=None)
         elif self.sampler_type == 'cluster':

@@ -3,8 +3,8 @@ conda init bash
 conda activate mygcn
 
 sampler="cluster"
-device=3
-batchsize=0.4
+device=0
+batchsize=0.2
 ns=2
 for sample in $sampler
 do
@@ -26,7 +26,7 @@ do
 
 # /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping yes --patience 200 --weight_decay 0 --learning_rate 2e-3 --shadow_learning_rate 0.001 --dropout 0.5  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0.5 --dataset github --device_num $device --private yes --noise_scale $ns --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 1 --sampler $sample --sampler_batchsize $batchsize --occurance_k 10 --cluster_numparts 30  --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false --dp_type rdp --task_root git_ns2_nb1_$sample
 
-# /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping yes --patience 200 --weight_decay 0 --learning_rate 2e-3 --shadow_learning_rate 0.001 --dropout 0.5  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0$batchsize --dataset flickr --device_num $device --private yes --noise_scale $ns --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 1 --sampler $sample --sampler_batchsize $batchsize --occurance_k 10 --cluster_numparts  100  --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false --dp_type rdp --task_root fli_ns2_nb1_$sample
+/mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping yes --patience 200 --weight_decay 0 --learning_rate 2e-3 --shadow_learning_rate 0.001 --dropout 0.5  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0$batchsize --dataset flickr --device_num $device --private yes --noise_scale $ns --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 1 --sampler $sample --sampler_batchsize $batchsize --occurance_k 10 --cluster_numparts  100  --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false --dp_type rdp --task_root fli_ns2_nb1_$sample
 
 
 /mnt/ssd1/sunyifan/conda/mygcn/bin/python /mnt/ssd1/sunyifan/WorkStation/dpuf/my_DPGCN/newmain.py --early_stopping yes --weight_decay 0 --learning_rate 2e-3 --shadow_learning_rate 0.001 --dropout 0.5  --epochs 500 --shadow_epochs 500 --mia_subsample_rate 0.5 --dataset lastfmasia --device_num $device --private yes --noise_scale $ns --split_n_subgraphs 1 --rdp true --optim_type adam --gradient_norm_bound 1 --sampler $sample --sampler_batchsize $batchsize --occurance_k 10 --cluster_numparts 100  --saint_rootnodes 5 --saint_samplecoverage 50 --saint_walklenth 3 --shadowk_depth 2 --shadowk_neighbors 10 --shadowk_replace false --dp_type rdp --task_root last_ns2_nb1_$sample
