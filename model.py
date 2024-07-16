@@ -309,9 +309,6 @@ class vanilla_GCN_node():
         self.saint_rootnodes = ss.args.saint_rootnodes
         self.saint_samplecoverage = ss.args.saint_samplecoverage
         self.saint_walklenth = ss.args.saint_walklenth
-        self.shadowk_depth = ss.args.shadowk_depth
-        self.shadowk_neighbors = ss.args.shadowk_neighbors
-        self.shadowk_replace = ss.args.shadowk_replace
 
         self.split_n_subgraphs = ss.args.split_n_subgraphs  
         

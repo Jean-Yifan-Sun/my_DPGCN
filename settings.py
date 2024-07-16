@@ -90,12 +90,7 @@ def parse_arguments():
                            help='num nodes for calculate coverage of saint sampler (无所谓)')
     argparser.add_argument("--saint_walklenth", type=int, default=3,
                            help='num random walks for saint sampler')
-    argparser.add_argument("--shadowk_depth", type=int, default=3,
-                           help='num depths for shadowk sampler')
-    argparser.add_argument("--shadowk_neighbors", type=int, default=100,
-                           help='num neighbors for shadowk sampler')
-    argparser.add_argument("--shadowk_replace", type=str2bool, default=False,
-                           help='node replacement for shadowk sampler (True就有放回)')
+
     argparser.add_argument("--dp_type", type=str, default='rdp',
                            help='dp ldp rdp')
     argparser.add_argument("--ldp_eps", type=float, default=10,
